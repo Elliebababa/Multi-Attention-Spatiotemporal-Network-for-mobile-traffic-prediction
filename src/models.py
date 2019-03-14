@@ -1,7 +1,8 @@
 import numpy as np
+import tensorflow as tf
 from keras.models import Model
 from keras.optimizers import Adam
-from keras.layers import LSTM,RepeatVector,Dense,Activation,Add,Reshape,Input,Lambda,Multiply,Concatenate,Dot,Permute
+from keras.layers import LSTM,RepeatVector,Dense,Activation,Add,Reshape,Input,Lambda,Multiply,Concatenate,Dot,Permute, Softmax
 latent_dim = 64
 dropout = 0
 lookback = 6
@@ -241,4 +242,123 @@ def decoder_prediction(test_input, encoder_model, decoder_model, pre_step = 1, d
         #update states
         states_values = [h,c]
     return decoded_seq
+    
+class MAModel(object):
+    def __init__(self, T = 6, encoder_latent_dim = 64, decoder_latent_dim = 64):
+        super(MAModel, self).__init__()
+        self.T = T
+        self.encoder_latent_dim = encoder_latent_dim
+        self.decoder_latent_dim = decoder_latent_dim
+        self.We = Dense(units = T, input_dim = 2 * encoder_latent_dim, activation = 'linear', use_bias = False, name = 'We')
+        self.Ue = Dense(units = T, input_dim = T, activation = 'linear', use_bias = False, name = 'Ue')
+        self.Ve = Dense(units = 1, input_dim = T, activation = 'linear', use_bias = False, name = 'Ve')
+        self.enLSTM = LSTM(encoder_latent_dim, return_state = True, name = 'encoder_lstm')
+        self.deLSTM = LSTM(decoder_latent_dim, return_state = True, name = 'decoder_lstm')
+        self.Wd = Dense(units = decoder_latent_dim, input_dim = decoder_latent_dim, activation = 'linear', use_bias = False, name = 'Wd')
+        self.Wd_ = Dense(units = decoder_latent_dim, input_dim = 2*encoder_latent_dim, activation = 'linear', use_bias = False, name = 'Wd_')
+        self.Vd = Dense(units = 1, input_dim = decoder_latent_dim, activation = 'linear', use_bias = False, name = 'Vd')
+        self.Wo = Dense(units = 1, activation = 'sigmoid', use_bias = True, name = 'Dense_for_output')
+        
+    def spatial_attention(self,encoder_inputs, enc_attn, init_states):
+        # input : encoder_inputs [batch_size, time_steps, input_dim], init_states
+        # return : encoder_output, encoder_state, encoder_att
+        [h,s] = init_states
+        encoder_att = []
+        encoder_output = []
+        
+        #local attention
+        #shared layer
+        AddLayer = Add(name = 'add')
+        PermuteLayer = Permute(dims = (2,1))
+        ActTanh = Activation(activation = 'tanh',name ='tanh_for_e')
+        ActSoftmax = Activation(activation = 'softmax', name ='softmax_for_alpha')
+        def local_attention(states,step):
+            #for attention query
+            #linear map
+            Ux = self.Ue(PermuteLayer(encoder_inputs)) #[none,input_dim,T]
+            states = Concatenate(axis = 1, name = 'state_{}'.format(step))(states)
+            Whs = self.We(states) #[none, T]
+            Whs = RepeatVector(encoder_inputs.shape[2])(Whs) #[none,input_dim,T]
+            y = AddLayer([Ux, Whs])
+            e = self.Ve(ActTanh(y)) #[none,input_dim,1]
+            e = PermuteLayer(e) #[none,1,input_dim]
+            alpha = ActSoftmax(e)
+            return alpha
+        
+        local_attn = enc_attn
+        
+        for t in range(self.T):
+            x = Lambda(lambda x: x[:,t ,:], name = 'X_{}'.format(t))(encoder_inputs) #[none,input_dim]
+            x = RepeatVector(1)(x) #[none,1,input_dim] , 1 denotes one time step
+            local_x = Multiply(name = 'Xatt_{}'.format(t))([local_attn, x]) #[none,1,input_dim]
+            o, h, s = self.enLSTM(local_x, initial_state = [h, s]) #o, h, s [none, hidden_dim]
+            o = RepeatVector(1)(o)
+            encoder_output.append(o)
+            local_attn = local_attention([h,s], t+1)
+            encoder_att.append(local_attn)
+            
+        print('encoder_att',encoder_att)
+        encoder_att = Concatenate(axis = 1,name = 'encoder_att')(encoder_att) #[none, T, input_dim]
+        encoder_output = Concatenate(axis = 1, name = 'encoder_output')(encoder_output)
+        
+        return encoder_output, [h,s], encoder_att
+    
+    def temporal_attention(self, decoder_inputs,initial_state,attention_states):
+        #input : decoder_inputs, intial_state, attention_states
+        #return : output, state
+        AddLayer = Add(name = 'add_tem')
+        PermuteLayer = Permute(dims = (2,1))
+        ActTanh = Activation(activation = 'tanh',name ='tanh_for_d')
+        def attention(states, step):
+            #return context for the t step
+            Wh = self.Wd(attention_states) #[none, T, latent_dim]
+            states = Concatenate(axis = 1, name = 'state_hat_{}'.format(step))(states)
+            Wds = self.Wd_(states) #[none, latent_dim]
+            Wds = RepeatVector(attention_states.shape[1])(Wds) #[none, T, latent_dim]
+            y = AddLayer([Wds,Wh])
+            u = self.Vd(ActTanh(y))#[none, T, 1]
+            a = Softmax(axis = 1)(u)
+            c = Dot(axes = (1))([a,attention_states]) #[none, 1, latent_dim], the summed context over encoder outputs at certain pred time step 
+            return c
+        
+        predT = 1
+        [h,s] = initial_state
+        context = attention([h,s],0) 
+        outputs =[]
+        for t in range(predT):
+            x = Lambda(lambda x: x[:,t ,:], name = 'X_tem{}'.format(t))(decoder_inputs) #[none,decoder_input_dim]
+            x = RepeatVector(1)(x) #[none,1,decoder_input_dim] , 1 denotes one time step
+            x = Concatenate(axis = -1)([context,x])
+            o, h, s = self.deLSTM(x, initial_state = [h, s])
+            context = attention([h,s],t+1)#[none, 1, latent_dim]
+            o = RepeatVector(1)(o)
+            outputs.append(o)
+        if len(outputs) > 1:
+            outputs = Concatenate(axis = 1, name = 'decoder_output')(outputs)
+        else:
+            outputs = tf.convert_to_tensor(outputs[0])
+        print(outputs)
+        return outputs,[h,s]
+        
+        
+    def build_model(self, input_dim = 5):
+        #encoder
+        encoder_latent_dim = self.encoder_latent_dim
+        T = self.T
+        h0 = Input(shape = (encoder_latent_dim,),name = 'h_initial')
+        s0 = Input(shape = (encoder_latent_dim,),name = 's_initial')
+        enc_att = Input(shape = (1,input_dim),name = 'enc_att')
+        encoder_inputs = Input(shape = (T,input_dim), name = 'encoder_input')
+        encoder_output, encoder_state, encoder_att = self.spatial_attention(encoder_inputs,enc_att,[h0, s0])
+               
+        #decoder
+        dim = 1
+        decoder_inputs = Input(shape = (None, dim))
+        decoder_outputs, states = self.temporal_attention(decoder_inputs, encoder_state, encoder_output)
+        
+        #linear transform
+        #output = Dense(1, activation = 'linear', name = 'output_dense')(decoder_att)
+        output = self.Wo(decoder_outputs)
+        model = Model([encoder_inputs, h0, s0, enc_att,decoder_inputs], output)
+        return model
 

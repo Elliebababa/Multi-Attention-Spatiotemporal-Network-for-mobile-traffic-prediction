@@ -31,21 +31,26 @@ class MinMaxNormalization(object):
         return X
 
 
-def loadData(fname = 'train_test_set_6_1.h5'):
-    mmn = pickle.load(open('mmn_scaler.pkl','rb'))
+def loadData(fname = 'train_test_set_6_1_Nov_2.h5'):
     f = h5py.File(fname, 'r')
     #['test_decoder_input_his', 'test_decoder_target', 'test_encoder_input', 'test_encoder_input_aux', 'train_decoder_input', 'train_decoder_input_his', 'train_decoder_target', 'train_encoder_input', 'train_encoder_input_aux']
-    test_decoder_input_his = f['test_decoder_input_his'].value
+    if 'test_decoder_input_his' in f.keys():
+      test_decoder_input_his = f['test_decoder_input_his'].value
+    else:
+      test_decoder_input_his = np.zeros((1,1))
     test_decoder_target = f['test_decoder_target'].value
     test_encoder_input = f['test_encoder_input'].value
     test_encoder_input_aux = f['test_encoder_input_aux'].value
     train_decoder_input = f['train_decoder_input'].value
-    train_decoder_input_his = f['train_decoder_input_his'].value
+    if 'train_decoder_input_his' in f.keys():
+      train_decoder_input_his = f['train_decoder_input_his'].value
+    else:
+      train_decoder_input_his = np.zeros((1,1))
     train_decoder_target = f['train_decoder_target'].value
     train_encoder_input = f['train_encoder_input'].value
     train_encoder_input_aux = f['train_encoder_input_aux'].value
     f.close()
-    return train_encoder_input, train_encoder_input_aux, train_decoder_input, train_decoder_input_his, train_decoder_target, test_encoder_input, test_encoder_input_aux, test_decoder_input_his, test_decoder_target, mmn
+    return train_encoder_input, train_encoder_input_aux, train_decoder_input, train_decoder_input_his, train_decoder_target, test_encoder_input, test_encoder_input_aux, test_decoder_input_his, test_decoder_target
     
 
 '''

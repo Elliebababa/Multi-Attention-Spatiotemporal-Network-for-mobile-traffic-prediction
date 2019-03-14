@@ -7,10 +7,10 @@ from sklearn.preprocessing import MinMaxScaler
 
 obs_len = 6
 pre_len = 1
-data_file_path = '../data/processed/internet_t10_s3030_4070.h5'
-cl = 144    #cyclic len
-sl = 144*7  #seasonal len
-test_len = 144 * 7 - obs_len
+data_file_path = '../data/processed/Nov_internet_data_t10_s3030_4070.h5'
+cl = 0#144    #cyclic len
+sl = 0#144*7  #seasonal len
+test_len = 144 * 7
 
 def makedataset(data, lookback = obs_len, prestep = pre_len, cl = cl, sl = sl, history = False):
     #make dataset for seq2seq model, includes encoder input data, decoder input aux, decoder target data
@@ -21,8 +21,8 @@ def makedataset(data, lookback = obs_len, prestep = pre_len, cl = cl, sl = sl, h
     #   decoder_target_data: [nodes, samples, pre_len, 1]
     
     #first we need to scale the data
-    mmn = MinMaxNormalization()
-    data = mmn.fit_transform(data) 
+    #mmn = MinMaxNormalization()
+    #data = mmn.fit_transform(data) 
     
     encoder_input_data = []
     decoder_target_data = []
@@ -56,11 +56,8 @@ def makedataset(data, lookback = obs_len, prestep = pre_len, cl = cl, sl = sl, h
         '''
     encoder_input_data = np.asarray(encoder_input_data)
     decoder_target_data = np.asarray(decoder_target_data)
-    if history:
-        decoder_input_his = np.asarray(decoder_input_his)
-    else:
-        decoder_input_his = None
-    return encoder_input_data, decoder_target_data, decoder_input_his, mmn
+    decoder_input_his = np.asarray(decoder_input_his)
+    return encoder_input_data, decoder_target_data, decoder_input_his
 
 def splitdata(data, testlen = test_len, shuffle = True):
     #split data into train and test set
@@ -86,22 +83,19 @@ def splitdata(data, testlen = test_len, shuffle = True):
 
 
 if __name__ == '__main__':
-    '''
+   
     f = h5.File(data_file_path,'r')
     data = f['data']
     s = data.shape
     data = np.reshape(data,(s[0],s[1],s[2]*s[3]))
-    t1,t2,t3,mmn = makedataset(data,history = True)
+    t1,t2,t3 = makedataset(data,history = False)
     np.save('encoder_input_data.npy',t1)
     np.save('decoder_target_data.npy',t2)
     np.save('decoder_input_his.npy',t3)
-    scalerFile = open('mmn_scaler.pkl','wb')
-    pickle.dump(mmn,scalerFile)
-    scalerFile.close()
-    '''
-    '''
-    f2 = h5.File('../data/processed/call_t10_s3030_4070.h5','r')
-    f3 = h5.File('../data/processed/sms_t10_s3030_4070.h5','r')
+    
+    
+    f2 = h5.File('../data/processed/Nov_call_data_t10_s3030_4070.h5','r')
+    f3 = h5.File('../data/processed/Nov_sms_data_t10_s3030_4070.h5','r')
     data2 = f2['data'].value
     data3 = f3['data'].value
 
@@ -110,26 +104,29 @@ if __name__ == '__main__':
     s3 = data3.shape
     data3 = np.reshape(data2,(s3[0],s3[1],s3[2]*s3[3]))
     data23 = np.concatenate([data2,data3],axis = 1)
-    aux, _ , _, _= makedataset(data23,history = False) 
+    aux, _ , _= makedataset(data23,history = False) 
     print('data_aux',data23.shape)
     print('aux',aux.shape)
     np.save('encoder_input_aux.npy',aux)
-    '''
+ 
 
     t1 = np.load('encoder_input_data.npy','r')
     t2 = np.load('decoder_target_data.npy','r')
     t3 = np.load('decoder_input_his.npy','r')
     t4 = np.load('encoder_input_aux.npy','r')
     daux,daux2,d1,d2,d3,d4,d5,d6,d7 = splitdata([t1,t2,t3,t4])
-    f = h5.File('train_test_set_6_1_.h5','w')
+    #return train_encoder_input_aux,test_encoder_input_aux,train_encoder_input, train_decoder_target, train_decoder_input_his, test_encoder_input, test_decoder_target, test_decoder_input_his, train_decoder_input
+    
+    f = h5.File('train_test_set_6_1_Nov_2.h5','w')
+    f.create_dataset('description', data = 'data with none historical data')
     f.create_dataset('train_encoder_input_aux',data = daux)
     f.create_dataset('test_encoder_input_aux',data = daux2)
     f.create_dataset('train_encoder_input',data = d1)
     f.create_dataset('train_decoder_target',data = d2)
-    f.create_dataset('train_decoder_input_his',data = d3 )
+    #f.create_dataset('train_decoder_input_his',data = d3 )
     f.create_dataset('test_encoder_input',data = d4)
     f.create_dataset('test_decoder_target',data = d5)
-    f.create_dataset('test_decoder_input_his',data = d6)
+    #f.create_dataset('test_decoder_input_his',data = d6)
     f.create_dataset('train_decoder_input',data = d7)
     f.close()
     
