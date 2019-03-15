@@ -31,11 +31,11 @@ T = 144
 len_test = T * days_test
 lr = 0.0002
 look_back = 6 # look back of interval, the same as len_closeness
-nb_epoch = 1
+nb_epoch = 100
 nb_epoch_cont = 0
 patience = 5  # early stopping patience
 batch_size = 2**10
-verbose = 1
+verbose = 2
 #model for training
 modelbase = 'seq2seq'
 m = 64 #hidden layer of MAModel
