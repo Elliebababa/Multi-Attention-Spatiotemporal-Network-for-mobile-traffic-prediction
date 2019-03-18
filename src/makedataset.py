@@ -6,7 +6,7 @@ import pickle
 from sklearn.preprocessing import MinMaxScaler
 
 obs_len = 6
-pre_len = 1
+pre_len = 3
 genneighbors = True
 neighbnum = 15
 data_file_path = '../data/processed/Nov_internet_data_t10_s3030_4070.h5'
@@ -15,7 +15,7 @@ sl = 0#144*7  #seasonal len
 test_len = 144 * 7 - pre_len + 1
 
 if genneighbors:
-    weights = np.load('./neighbor_weights.npy')
+    weights = np.load('./neighbor_weights_matrix.npy')
     neighborsid = np.zeros(shape=(900,neighbnum), dtype = int)
     for i in range(900):
         neighbor = np.argsort(-weights[i,:])[:neighbnum]

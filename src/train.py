@@ -19,6 +19,8 @@ from utils import *
 import metrics
 #model
 from models import *
+
+#code to fix keras of tf bug
 #allow growth
 import tensorflow as tf
 from keras.backend.tensorflow_backend import set_session
@@ -37,7 +39,7 @@ patience = 5  # early stopping patience
 batch_size = 2**10
 verbose = 2
 #model for training
-modelbase = 'seq2seq'
+modelbase = 'MAModel-global' # lstm, seq2seq, MAModel, MAModel-global
 m = 64 #hidden layer of MAModel
 
 print('\n','='*5, ' configuration ', '='*5)
@@ -63,9 +65,18 @@ def display_evaluation(y_pred, y_true, info = 'evaluation:'):
 def build_model(modelbase = modelbase):
     if modelbase == 'seq2seq':
         model, encoder_model, decoder_model = seq2seq()
-    if modelbase == 'MAModel':
+    elif modelbase == 'lstm':
+        model = lstm()
+        encoder_model = None
+        decoder_model = model
+    elif modelbase == 'MAModel':
         a = MAModel()
-        model = a.build_model(input_dim = 5)
+        model = a.build_model(input_dim = int(5))
+        encoder_model = None
+        decoder_model = None
+    elif modelbase == 'MAModel-global':
+        a = MAModel(global_att = True)
+        model = a.build_model(input_dim = int(5))
         encoder_model = None
         decoder_model = None
     adam = Adam(lr = lr)
@@ -76,13 +87,17 @@ def build_model(modelbase = modelbase):
 
 import click
 @click.command()
-@click.option('--modelbase',default= modelbase, help='seq2seq, MAModel')
+@click.option('--modelbase',default= modelbase, help='lstm, seq2seq, MAModel, MAModel-global')
 def main(modelbase):
     modelbase = modelbase
     # load data and make dataset
     print('loading data...')
     ts = time.time()
-    train_encoder_input, train_encoder_input_aux, train_decoder_input, train_decoder_input_his, train_decoder_target, test_encoder_input, test_encoder_input_aux, test_decoder_input_his, test_decoder_target = loadData()
+    fname = 'train_test_set_6_1_Nov_2.h5'
+    if modelbase == 'MAModel-global':
+        fname = 'train_test_set_en6_de1_Nov_neighbor.h5'
+    train_encoder_input, train_encoder_input_aux, train_decoder_input, train_decoder_input_his, train_decoder_target, test_encoder_input, test_encoder_input_aux, test_decoder_input_his, test_decoder_target, \
+        train_neighbor_values, test_neighbor_values, train_neighbor_weights, test_neighbor_weights = loadData(fname)
 
     print('Train set shape: \ntrain_encoder_input:{}, \ntrain_encoder_input_aux:{}, \ntrain_decoder_input:{}, \ntrain_decoder_input_his:{}, \ntrain_decoder_target:{}'.format(
        train_encoder_input.shape, train_encoder_input_aux.shape, train_decoder_input.shape, train_decoder_input_his.shape, train_decoder_target.shape ))
@@ -112,9 +127,22 @@ def main(modelbase):
     
     #concate x and aux
     #encoder_input
-    if modelbase == 'MAModel':
+    if modelbase in ['MAModel','MAModel-global']:
         train_encoder_input = np.concatenate([train_encoder_input, train_encoder_input_aux],axis = -1)
         test_encoder_input = np.concatenate([test_encoder_input, test_encoder_input_aux],axis = -1)
+        
+    #neighbor_weights and neighbor_values
+    if modelbase == 'MAModel-global':
+        train_neighbor_values = np.vstack(train_neighbor_values)
+        test_neighbor_values = np.vstack(test_neighbor_values)
+        neighbor_values = np.concatenate([train_neighbor_values, test_neighbor_values],axis = 0)
+        neighbor_values, neighbor_values_mmn = scale_data(neighbor_values)
+        train_neighbor_values = neighbor_values[:train_neighbor_values.shape[0]]
+        test_neighbor_values = neighbor_values[train_neighbor_values.shape[0]:]
+        train_neighbor_weights = np.vstack(train_neighbor_weights)
+        test_neighbor_weights = np.vstack(test_neighbor_weights)
+        print('train_neighbor_values:{}, \ntest_neighbor_values:{}'.format(train_neighbor_values.shape, test_neighbor_values.shape))
+        print('train_neighbor_weights:{}, \ntest_neighbor_weights:{}'.format(train_neighbor_weights.shape, test_neighbor_weights.shape))
     
     #decoder input
     train_decoder_input = np.vstack(train_decoder_input)
@@ -152,8 +180,8 @@ def main(modelbase):
     #filename for saving the best model
     fname_param = os.path.join('{}.best.h5'.format(modelbase))
     #callbacks
-    early_stopping = EarlyStopping(monitor='val_root_mean_square_error', patience=patience, mode='min')
-    model_checkpoint = ModelCheckpoint(fname_param, monitor='val_root_mean_square_error', verbose=0, save_best_only=True, mode='min')
+    early_stopping = EarlyStopping(monitor='val_rmse', patience=patience, mode='min')
+    model_checkpoint = ModelCheckpoint(fname_param, monitor='val_rmse', verbose=0, save_best_only=True, mode='min')
     tensor_board = TensorBoard(log_dir = './logs', histogram_freq = 0, write_graph = True, write_images = False, embeddings_freq = 0, embeddings_layer_names = None, embeddings_metadata = None)
     print("\ncompile model elapsed time (compiling model): %.3f seconds\n" %(time.time() - ts))
     
@@ -166,10 +194,19 @@ def main(modelbase):
     callbacks = [early_stopping, model_checkpoint,tensor_board]
     if modelbase =='seq2seq':
         history = model.fit([train_encoder_input, train_decoder_input], train_decoder_target, verbose = verbose, batch_size = batch_size, epochs = nb_epoch, validation_split = 0.2, callbacks = callbacks)
-    if modelbase =='MAModel':
+    elif modelbase =='lstm':
+        history = model.fit([train_encoder_input], train_decoder_target, verbose = verbose, batch_size = batch_size, epochs = nb_epoch, validation_split = 0.2, callbacks = callbacks)
+    elif modelbase =='MAModel':
         s0_train = h0_train = np.zeros((train_encoder_input.shape[0],m))
         enc_att = np.ones((train_encoder_input.shape[0],1,train_encoder_input.shape[2]))
         history = model.fit([train_encoder_input,h0_train,s0_train,enc_att,train_decoder_input], train_decoder_target, verbose = verbose, batch_size = batch_size, epochs = nb_epoch, validation_split = 0.2, callbacks = callbacks)
+    elif modelbase =='MAModel-global':
+    #model = Model([encoder_inputs_local, encoder_inputs_global_value,encoder_inputs_global_weight, h0, s0, enc_att_local, enc_att_global, decoder_inputs], output)
+        s0_train = h0_train = np.zeros((train_encoder_input.shape[0],m))
+        enc_att = np.ones((train_encoder_input.shape[0],1,train_encoder_input.shape[2]))
+        enc_att_glo = np.ones((train_neighbor_values.shape[0],1,train_neighbor_values.shape[2]))
+        history = model.fit([train_encoder_input, train_neighbor_values, train_neighbor_weights, h0_train, s0_train, enc_att, enc_att_glo, train_decoder_input], train_decoder_target, verbose = verbose, batch_size = batch_size, epochs = nb_epoch, validation_split = 0.2, callbacks = callbacks)
+    
     model.save_weights(fname_param)
     print("\ntrain model elapsed time (training): %.3f seconds\n" % (time.time() - ts))
     
@@ -182,10 +219,18 @@ def main(modelbase):
     #train score
     if modelbase =='seq2seq':
         train_pred =  model.predict([train_encoder_input, train_decoder_input], verbose = verbose, batch_size = batch_size)
-    if modelbase =='MAModel':
+    elif modelbase == 'lstm':
+        train_pred =  model.predict([train_encoder_input], verbose = verbose, batch_size = batch_size)
+    elif modelbase =='MAModel':
         s0_train = h0_train = np.zeros((train_encoder_input.shape[0],m))
         enc_att = np.ones((train_encoder_input.shape[0],1,train_encoder_input.shape[2]))
         train_pred =  model.predict([train_encoder_input,h0_train,s0_train,enc_att, train_decoder_input], verbose = verbose, batch_size = batch_size)
+    elif modelbase =='MAModel-global':
+    #model = Model([encoder_inputs_local, encoder_inputs_global_value,encoder_inputs_global_weight, h0, s0, enc_att_local, enc_att_global, decoder_inputs], output)
+        s0_train = h0_train = np.zeros((train_encoder_input.shape[0],m))
+        enc_att = np.ones((train_encoder_input.shape[0],1,train_encoder_input.shape[2]))
+        enc_att_glo = np.ones((train_neighbor_values.shape[0],1,train_neighbor_values.shape[2]))
+        train_pred=model.predict([train_encoder_input, train_neighbor_values, train_neighbor_weights, h0_train, s0_train, enc_att, enc_att_glo, train_decoder_input],verbose = verbose, batch_size=batch_size)
     
     print('train_pred shape',train_pred.shape)
     train_pred_orig = mmn.inverse_transform(train_pred.reshape(train_pred.shape[0],-1))
@@ -195,11 +240,18 @@ def main(modelbase):
     #test score
     if modelbase =='seq2seq':
         test_pred = decoder_prediction([test_encoder_input], encoder_model, decoder_model)
-    if modelbase =='MAModel':
+    elif modelbase == 'lstm':
+        test_pred = model.predict([test_encoder_input], verbose = verbose, batch_size = batch_size)
+    elif modelbase =='MAModel':
         s0_test = h0_test = np.zeros((test_encoder_input.shape[0],m))
         enc_att = np.ones((test_encoder_input.shape[0],1,test_encoder_input.shape[2]))
-        
         test_pred = model.predict([test_encoder_input,h0_train,s0_train,enc_att, test_decoder_input], verbose = verbose, batch_size = batch_size)
+    elif modelbase =='MAModel-global':
+        s0_test = h0_test = np.zeros((test_encoder_input.shape[0],m))
+        enc_att = np.ones((test_encoder_input.shape[0],1,test_encoder_input.shape[2]))
+        enc_att_glo = np.ones((test_neighbor_values.shape[0],1,test_neighbor_values.shape[2]))
+        test_pred = model.predict([test_encoder_input, test_neighbor_values, test_neighbor_weights, h0_test, s0_test, enc_att, enc_att_glo, test_decoder_input], verbose = verbose, batch_size = batch_size)
+    
     print('test_pred shape: ',test_pred.shape)
     test_pred_orig = mmn.inverse_transform(test_pred.reshape(test_pred.shape[0],-1))
     test_decoder_target_orig = mmn.inverse_transform(test_decoder_target.reshape(test_decoder_target.shape[0],-1))

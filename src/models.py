@@ -3,6 +3,7 @@ import tensorflow as tf
 from keras.models import Model
 from keras.optimizers import Adam
 from keras.layers import LSTM,RepeatVector,Dense,Activation,Add,Reshape,Input,Lambda,Multiply,Concatenate,Dot,Permute, Softmax
+import keras.backend as K
 latent_dim = 64
 dropout = 0
 lookback = 6
@@ -13,6 +14,7 @@ def lstm(lookback = lookback, latent_dim = latent_dim, dropout = dropout):
     lstm = LSTM(latent_dim, dropout= dropout, name = 'lstm')
     lstm_r1 = lstm(lstm_inputs)
     lstm_outputs = Dense(1)(lstm_r1)
+    lstm_outputs = RepeatVector(1)(lstm_outputs)
     lstm_model = Model(lstm_inputs, lstm_outputs)
     return lstm_model
 
@@ -244,7 +246,7 @@ def decoder_prediction(test_input, encoder_model, decoder_model, pre_step = 1, d
     return decoded_seq
     
 class MAModel(object):
-    def __init__(self, T = 6, encoder_latent_dim = 64, decoder_latent_dim = 64, global_att = False,neigh_num = 15):
+    def __init__(self, T = 6, encoder_latent_dim = 64, decoder_latent_dim = 64, global_att = False, neigh_num = 15):
         super(MAModel, self).__init__()
         self.T = T
         self.encoder_latent_dim = encoder_latent_dim
@@ -259,7 +261,7 @@ class MAModel(object):
         #encooder global attention parameter weight matrix
         self.global_att = global_att
         self.neigh_num = neigh_num
-        self.lamb = 0.5
+        self.lamb = 0.3
         self.Wg = Dense(units = T, input_dim = 2 * encoder_latent_dim, activation = 'linear', use_bias = False, name = 'Wg')
         self.ug = Dense(units = 1, input_dim = T, activation = 'linear', use_bias = False, name = 'Ug')
         self.Wg_ = Dense(units = T, input_dim = neigh_num, activation = 'linear', use_bias = False, name = 'Wg_')
@@ -269,7 +271,8 @@ class MAModel(object):
         self.Wd_ = Dense(units = decoder_latent_dim, input_dim = 2*encoder_latent_dim, activation = 'linear', use_bias = False, name = 'Wd_')
         self.Vd = Dense(units = 1, input_dim = decoder_latent_dim, activation = 'linear', use_bias = False, name = 'Vd')
         #output parameter matrix
-        self.Wo = Dense(units = 1, activation = 'sigmoid', use_bias = True, name = 'Dense_for_output')
+        self.Wo1 = Dense(units = 64, activation = 'sigmoid', use_bias = True, name = 'Dense1_for_output')
+        self.Wo2 = Dense(units = 1, activation = 'sigmoid', use_bias = True, name = 'Dense2_for_output')
         
     def spatial_attention(self,encoder_inputs, enc_attn, init_states):
         # input : encoder_inputs [batch_size, time_steps, input_dim], init_states,
@@ -366,9 +369,12 @@ class MAModel(object):
         
         else:
             local_att = [i[0] for i in encoder_att]
+            print('local_att', local_att)
             local_att = Concatenate(axis = 1)(local_att)
             global_att = [i[1] for i in encoder_att]
-            global_att = Concatenate(axis = 1)(global_att)
+            print('global_att', global_att)
+            #global_att = Concatenate(axis = 1)(global_att)
+            global_att = Lambda(lambda x: K.concatenate(x, axis = 1))(global_att)
             encoder_att = [local_att, global_att]
         
         encoder_output = Concatenate(axis = 1, name = 'encoder_output')(encoder_output)
@@ -413,7 +419,7 @@ class MAModel(object):
         return outputs,[h,s]
         
         
-    def build_model(self, input_dim = 5):
+    def build_model(self, input_dim = int(5)):
         #encoder
         encoder_latent_dim = self.encoder_latent_dim
         neighnum = self.neigh_num
@@ -440,7 +446,8 @@ class MAModel(object):
         
         #linear transform
         #output = Dense(1, activation = 'linear', name = 'output_dense')(decoder_att)
-        output = self.Wo(decoder_outputs)
+        output = self.Wo1(decoder_outputs)
+        output = self.Wo2(output)
         if not self.global_att:
             model = Model([encoder_inputs, h0, s0, enc_att, decoder_inputs], output)
         else:
