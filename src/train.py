@@ -39,8 +39,9 @@ patience = 5  # early stopping patience
 batch_size = 2**10
 verbose = 2
 #model for training
-modelbase = 'MAModel-global' # lstm, seq2seq, MAModel, MAModel-global
+modelbase = 'seq2seq' # lstm, seq2seq, MAModel, MAModel-global
 m = 64 #hidden layer of MAModel
+predstep = 3
 
 print('\n','='*5, ' configuration ', '='*5)
 print('\nlr: %.5f, lookback: %d, nb_epoch: %d, patience:%d, nb_epoch_cont: %d, batch size:%d'%(lr, look_back, nb_epoch, patience, nb_epoch_cont, batch_size))
@@ -66,7 +67,7 @@ def build_model(modelbase = modelbase):
     if modelbase == 'seq2seq':
         model, encoder_model, decoder_model = seq2seq()
     elif modelbase == 'lstm':
-        model = lstm()
+        model = lstm(predstep = predstep) # predstep = 1
         encoder_model = None
         decoder_model = model
     elif modelbase == 'MAModel':
@@ -93,7 +94,7 @@ def main(modelbase):
     # load data and make dataset
     print('loading data...')
     ts = time.time()
-    fname = 'train_test_set_6_1_Nov_2.h5'
+    fname = 'train_test_set_en6_de{}_Nov_neighbor.h5'.format(predstep)
     if modelbase == 'MAModel-global':
         fname = 'train_test_set_en6_de1_Nov_neighbor.h5'
     train_encoder_input, train_encoder_input_aux, train_decoder_input, train_decoder_input_his, train_decoder_target, test_encoder_input, test_encoder_input_aux, test_decoder_input_his, test_decoder_target, \
@@ -104,7 +105,10 @@ def main(modelbase):
     print('Test set shape: \ntest_encoder_input:{}, \ntest_encoder_input_aux:{}, \ntest_decoder_input_his:{}, \ntest_decoder_target:{}'.format(
         test_encoder_input.shape, test_encoder_input_aux.shape, test_decoder_input_his.shape, test_decoder_target.shape ))
 
-  
+    gridNum, trainSlots, lookback, _ = train_encoder_input.shape
+    _, _, predSteps, _ = train_decoder_target.shape
+    _, testSlots, _, _ = test_encoder_input.shape
+    
     #test decoder input
     test_decoder_input = np.zeros(test_decoder_target.shape)
     test_decoder_input[:,:,1:,] = test_decoder_target[:,:,:-1]
@@ -178,7 +182,7 @@ def main(modelbase):
     #build model
     model, encoder_model, decoder_model = build_model(modelbase)
     #filename for saving the best model
-    fname_param = os.path.join('{}.best.h5'.format(modelbase))
+    fname_param = os.path.join('{}_pred{}.best.h5'.format(modelbase, predstep))
     #callbacks
     early_stopping = EarlyStopping(monitor='val_rmse', patience=patience, mode='min')
     model_checkpoint = ModelCheckpoint(fname_param, monitor='val_rmse', verbose=0, save_best_only=True, mode='min')
@@ -239,7 +243,8 @@ def main(modelbase):
 
     #test score
     if modelbase =='seq2seq':
-        test_pred = decoder_prediction([test_encoder_input], encoder_model, decoder_model)
+        test_pred = decoder_prediction([test_encoder_input], encoder_model, decoder_model, pre_step = predstep)
+        #test_pred = model.predict([test_encoder_input, test_decoder_input], encoder_model, decoder_model)
     elif modelbase == 'lstm':
         test_pred = model.predict([test_encoder_input], verbose = verbose, batch_size = batch_size)
     elif modelbase =='MAModel':
@@ -257,6 +262,104 @@ def main(modelbase):
     test_decoder_target_orig = mmn.inverse_transform(test_decoder_target.reshape(test_decoder_target.shape[0],-1))
     display_evaluation(test_pred_orig,test_decoder_target_orig,'Test score')
     print("\nevaluate model elapsed time (eval): %.3f seconds\n" % (time.time() - ts))
+    
+#==========================================new evaluation========================================
+#the second part is to evaluate each grids
+
+    #first we need to unstack data
+
+    print('unstacking data into seperate training grids...')
+    train_encoder_input = np.reshape(train_encoder_input, (gridNum, trainSlots, lookback, -1))
+    test_encoder_input = np.reshape(test_encoder_input,(gridNum, testSlots, lookback, -1))
+    
+    train_encoder_input_aux = np.reshape(train_encoder_input_aux, (gridNum, trainSlots, lookback, -1))
+    test_encoder_input_aux = np.reshape(test_encoder_input_aux, (gridNum, testSlots, lookback, -1))
+            
+    #neighbor_weights and neighbor_values
+    if modelbase == 'MAModel-global':
+        train_neighbor_values = np.reshape(train_neighbor_values, (gridNum, trainSlots, lookback, -1))
+        test_neighbor_values = np.reshape(test_neighbor_values, (gridNum, trainSlots, lookback, -1))
+        train_neighbor_weights = np.reshape(train_neighbor_weights, (gridNum, trainSlots, lookback, -1))
+        test_neighbor_weights = np.reshape(test_neighbor_weights, (gridNum, trainSlots, lookback, -1))
+        print('train_neighbor_values:{}, \ntest_neighbor_values:{}'.format(train_neighbor_values.shape, test_neighbor_values.shape))
+        print('train_neighbor_weights:{}, \ntest_neighbor_weights:{}'.format(train_neighbor_weights.shape, test_neighbor_weights.shape))
+    
+    #decoder input
+    train_decoder_input = np.reshape(train_decoder_input, (gridNum, trainSlots, predstep, -1))
+    test_decoder_input = np.reshape(test_decoder_input, (gridNum, testSlots, 1, -1))
+    
+    #decoder_input_his
+    #train_decoder_input_his = np.reshape(train_decoder_input_his, (gridNum, trainSlots, 1, -1))
+    #test_decoder_input_his = np.reshape(test_decoder_input_his, (gridNum, trainSlots, 1, -1))
+    
+    #decoder_target
+    train_decoder_target = np.reshape(train_decoder_target, (gridNum, trainSlots, 1, -1))
+    test_decoder_target = np.reshape(test_decoder_target, (gridNum, testSlots, 1, -1))    
+
+    
+    #train score
+    ind = 0
+    trainScores = []
+    for tra_enc_inp, tra_dec_inp,tra_dec_tar  in zip(train_encoder_input, train_decoder_input,train_decoder_target):
+        if modelbase =='seq2seq':
+            train_pred =  model.predict([tra_enc_inp, tra_dec_inp], verbose = 0, batch_size = batch_size)
+        elif modelbase == 'lstm':
+            train_pred =  model.predict([tra_enc_inp], verbose = 0, batch_size = batch_size)
+        elif modelbase =='MAModel':
+            s0_train = h0_train = np.zeros((tra_enc_inp.shape[0],m))
+            enc_att = np.ones((tra_enc_inp.shape[0],1,tra_enc_inp.shape[2]))
+            train_pred =  model.predict([tra_enc_inp,h0_train,s0_train,enc_att, tra_dec_inp], verbose = 0, batch_size = batch_size)
+        elif modelbase =='MAModel-global':
+        #model = Model([encoder_inputs_local, encoder_inputs_global_value,encoder_inputs_global_weight, h0, s0, enc_att_local, enc_att_global, decoder_inputs], output)
+            s0_train = h0_train = np.zeros((tra_enc_inp.shape[0],m))
+            enc_att = np.ones((tra_enc_inp.shape[0],1,tra_enc_inp.shape[2]))
+            enc_att_glo = np.ones((train_neighbor_values[ind].shape[0],1,train_neighbor_values[ind].shape[2]))
+            train_pred=model.predict([tra_enc_inp, train_neighbor_values[ind], train_neighbor_weights[ind], h0_train, s0_train, enc_att, enc_att_glo, tra_dec_inp],verbose = 0, batch_size=batch_size)
+
+
+        train_pred_orig = mmn.inverse_transform(train_pred.reshape(train_pred.shape[0],-1))
+        train_decoder_target_orig = mmn.inverse_transform(tra_dec_tar.reshape(tra_dec_tar.shape[0],-1))
+        score_mse = np.mean(np.power(train_pred_orig-train_decoder_target_orig,2))
+        score_rmse = np.power(score_mse, 0.5)
+        train_nrmse = score_rmse / np.mean(train_decoder_target_orig)
+        trainScores.append(train_nrmse)
+        ind += 1
+
+    #test score
+    ind = 0
+    testScores = []
+    for tes_enc_inp, tes_dec_inp, tes_dec_tar in zip(test_encoder_input, test_decoder_input, test_decoder_target):
+        if modelbase =='seq2seq':
+            test_pred = decoder_prediction([tes_enc_inp], encoder_model, decoder_model, pre_step = predstep)
+        elif modelbase == 'lstm':
+            test_pred = model.predict([tes_enc_inp], verbose = 0, batch_size = batch_size)
+        elif modelbase =='MAModel':
+            s0_test = h0_test = np.zeros((tes_enc_inp.shape[0],m))
+            enc_att = np.ones((test_encoder_input.shape[0],1,tes_enc_inp.shape[2]))
+            test_pred = model.predict([tes_enc_inp,h0_train,s0_train,enc_att, tes_dec_inp], verbose = 0, batch_size = batch_size)
+        elif modelbase =='MAModel-global':
+            s0_test = h0_test = np.zeros((tes_enc_inp.shape[0],m))
+            enc_att = np.ones((tes_enc_inp.shape[0],1,tes_enc_inp.shape[2]))
+            enc_att_glo = np.ones((test_neighbor_values[ind].shape[0],1,test_neighbor_values[ind].shape[2]))
+            test_pred = model.predict([tes_enc_inp, test_neighbor_values[ind], test_neighbor_weights[ind], h0_test, s0_test, enc_att, enc_att_glo, tes_dec_inp], verbose = 0, batch_size = batch_size)
+        
+        
+        test_pred_orig = mmn.inverse_transform(test_pred.reshape(test_pred.shape[0],-1))
+        test_decoder_target_orig = mmn.inverse_transform(tes_dec_tar.reshape(tes_dec_tar.shape[0],-1))
+        score_mse = np.mean(np.power(train_pred_orig-train_decoder_target_orig,2))
+        score_rmse = np.power(score_mse, 0.5)
+        test_nrmse = score_rmse / np.mean(test_decoder_target_orig)
+        testScores.append(test_nrmse)
+        ind += 1
+
+    print('grid train nrmse mean:',np.mean(trainScores))
+    print('grid train nrmse std:',np.std(trainScores))
+    #print('test scores:', len(testScores), testScores)
+    print('grid test nrmse mean:',np.mean(testScores))
+    print('grid test nrmse std:',np.std(testScores))
+
+
+    
     
 if __name__ == '__main__':
     main()

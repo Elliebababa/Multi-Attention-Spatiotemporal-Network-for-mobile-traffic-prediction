@@ -8,13 +8,13 @@ latent_dim = 64
 dropout = 0
 lookback = 6
 
-def lstm(lookback = lookback, latent_dim = latent_dim, dropout = dropout):
+def lstm(lookback = lookback, predstep = 3, latent_dim = latent_dim, dropout = dropout):
     #LSTM
     lstm_inputs = Input(shape=(None, 1),name = 'lstm_input') 
     lstm = LSTM(latent_dim, dropout= dropout, name = 'lstm')
     lstm_r1 = lstm(lstm_inputs)
-    lstm_outputs = Dense(1)(lstm_r1)
-    lstm_outputs = RepeatVector(1)(lstm_outputs)
+    lstm_outputs = RepeatVector(predstep)(lstm_r1)
+    lstm_outputs = Dense(1)(lstm_outputs)
     lstm_model = Model(lstm_inputs, lstm_outputs)
     return lstm_model
 
