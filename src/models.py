@@ -271,7 +271,7 @@ class MAModel(object):
         self.Wd_ = Dense(units = decoder_latent_dim, input_dim = 2*encoder_latent_dim, activation = 'linear', use_bias = False, name = 'Wd_')
         self.Vd = Dense(units = 1, input_dim = decoder_latent_dim, activation = 'linear', use_bias = False, name = 'Vd')
         #output parameter matrix
-        self.Wo1 = Dense(units = 64, activation = 'sigmoid', use_bias = True, name = 'Dense1_for_output')
+        #self.Wo1 = Dense(units = 64, activation = 'sigmoid', use_bias = True, name = 'Dense1_for_output')
         self.Wo2 = Dense(units = 1, activation = 'sigmoid', use_bias = True, name = 'Dense2_for_output')
         
     def spatial_attention(self,encoder_inputs, enc_attn, init_states):
@@ -446,8 +446,8 @@ class MAModel(object):
         
         #linear transform
         #output = Dense(1, activation = 'linear', name = 'output_dense')(decoder_att)
-        output = self.Wo1(decoder_outputs)
-        output = self.Wo2(output)
+        #output = self.Wo1(decoder_outputs)
+        output = self.Wo2(decoder_outputs)
         if not self.global_att:
             model = Model([encoder_inputs, h0, s0, enc_att, decoder_inputs], output)
         else:
