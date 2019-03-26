@@ -6,7 +6,7 @@ import pickle
 from sklearn.preprocessing import MinMaxScaler
 
 obs_len = 6
-pre_len = 3
+pre_len = 6
 genneighbors = True
 neighbnum = 15
 data_file_path = '../data/processed/Nov_internet_data_t10_s3030_4070.h5'

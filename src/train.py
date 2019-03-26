@@ -356,11 +356,11 @@ def main(modelbase):
         ind += 1
     '''
     
-    train_pred_orig = np.reshape(train_pred_orig,(trainSlots,gridNum,1))
-    train_decoder_target_orig = np.reshape(train_decoder_target_orig,(trainSlots,gridNum,1))
+    train_pred_orig = np.reshape(train_pred_orig,(trainSlots,gridNum,predstep))
+    train_decoder_target_orig = np.reshape(train_decoder_target_orig,(trainSlots,gridNum,predstep))
     
-    test_pred_orig = np.reshape(test_pred_orig,(testSlots,gridNum,1))
-    test_decoder_target_orig = np.reshape(test_decoder_target_orig,(testSlots,gridNum,1))
+    test_pred_orig = np.reshape(test_pred_orig,(testSlots,gridNum,predstep))
+    test_decoder_target_orig = np.reshape(test_decoder_target_orig,(testSlots,gridNum,predstep))
     
 
     trainPredict = np.swapaxes(train_pred_orig,0,1)
@@ -370,18 +370,26 @@ def main(modelbase):
     testY = np.swapaxes(test_decoder_target_orig, 0, 1)
 
     print('trainY shape:',trainY.shape)
-    trainScores = [(math.sqrt(mean_squared_error(trainY[grid,:], trainPredict[grid,:, 0:1])))/np.mean(trainY[grid,:]) for grid,_ in enumerate(trainPredict)]
-    testScores = [(math.sqrt(mean_squared_error(testY[grid,:], testPredict[grid,:, 0:1])))/np.mean(testY[grid,:]) for grid,_ in enumerate(testPredict)]
+    print('trainPredict.shape',trainPredict.shape)
+    trainScores = [(math.sqrt(mean_squared_error(trainY[grid,:].flatten(), trainPredict[grid,:].flatten())))/np.mean(trainY[grid,:].flatten()) for grid,_ in enumerate(trainPredict)]
+    testScores = [(math.sqrt(mean_squared_error(testY[grid,:].flatten(), testPredict[grid,:].flatten())))/np.mean(testY[grid,:].flatten()) for grid,_ in enumerate(testPredict)]
     
+    trainScores_rmse = [(math.sqrt(mean_squared_error(trainY[grid,:].flatten(), trainPredict[grid,:].flatten()))) for grid,_ in enumerate(trainPredict)]
+    testScores_rmse = [(math.sqrt(mean_squared_error(testY[grid,:].flatten(), testPredict[grid,:].flatten()))) for grid,_ in enumerate(testPredict)]
     
     print('grid train nrmse mean:',np.mean(trainScores))
     print('grid train nrmse std:',np.std(trainScores))
     #print('test scores:', len(testScores), testScores)
     print('grid test nrmse mean:',np.mean(testScores))
     print('grid test nrmse std:',np.std(testScores))
-
-
     
+    print('#'*10)
+    print(modelbase,'  ','pred:',predstep)
+    print('grid train rmse mean:',np.mean(trainScores_rmse))
+    print('grid train rmse std:',np.std(trainScores_rmse))
+    print('grid test rmse mean:',np.mean(testScores_rmse))
+    print('grid test rmse std:',np.std(testScores_rmse))
+
     
 if __name__ == '__main__':
     main()

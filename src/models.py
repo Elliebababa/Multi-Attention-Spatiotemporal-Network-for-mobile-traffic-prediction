@@ -246,9 +246,10 @@ def decoder_prediction(test_input, encoder_model, decoder_model, pre_step = 1, d
     return decoded_seq
     
 class MAModel(object):
-    def __init__(self, T = 6, encoder_latent_dim = 64, decoder_latent_dim = 64, global_att = False, neigh_num = 15):
+    def __init__(self, T = 6, predT = 1, encoder_latent_dim = 64, decoder_latent_dim = 64, global_att = False, neigh_num = 15, semantic = False):
         super(MAModel, self).__init__()
         self.T = T
+        self.predT = predT
         self.encoder_latent_dim = encoder_latent_dim
         self.decoder_latent_dim = decoder_latent_dim
         #lstm for encoder and decoder 
@@ -261,12 +262,13 @@ class MAModel(object):
         #encooder global attention parameter weight matrix
         self.global_att = global_att
         self.neigh_num = neigh_num
-        self.lamb = 0.3
+        self.lamb = 0.1
         self.Wg = Dense(units = T, input_dim = 2 * encoder_latent_dim, activation = 'linear', use_bias = False, name = 'Wg')
         self.ug = Dense(units = 1, input_dim = T, activation = 'linear', use_bias = False, name = 'Ug')
         self.Wg_ = Dense(units = T, input_dim = neigh_num, activation = 'linear', use_bias = False, name = 'Wg_')
         self.Vg = Dense(units = 1, input_dim = T, activation = 'linear', use_bias = False, name = 'Vg')
         #decoder temporal attention parameter weight matrix
+        self.semantic = semantic
         self.Wd = Dense(units = decoder_latent_dim, input_dim = decoder_latent_dim, activation = 'linear', use_bias = False, name = 'Wd')
         self.Wd_ = Dense(units = decoder_latent_dim, input_dim = 2*encoder_latent_dim, activation = 'linear', use_bias = False, name = 'Wd_')
         self.Vd = Dense(units = 1, input_dim = decoder_latent_dim, activation = 'linear', use_bias = False, name = 'Vd')
@@ -354,9 +356,9 @@ class MAModel(object):
                 prior = Lambda(lambda p: p[:,t ,:], name = 'global_prior_{}'.format(t))(global_input_weight) #[none,neighbornum]
                 prior = RepeatVector(1)(prior)
                 local_x = Multiply(name = 'Xatt_local_{}'.format(t))([local_attn, x]) #[none,1,input_dim]
-                #print('global_attn:',global_attn, 'x2:',x2)
-                global_x = Multiply(name = 'Xatt_global_{}'.format(t))([global_attn, x2])
-                att_x = Concatenate(axis = -1)([local_x, x2])
+                print('global_attn:',global_attn, 'x2:',x2)
+                global_x = Dot(axes = (2),name = 'Xatt_global_{}'.format(t))([global_attn, x2])
+                att_x = Concatenate(axis = -1)([local_x, global_x])
                 o, h, s = self.enLSTM(att_x, initial_state = [h, s]) #o, h, s [none, hidden_dim]
                 o = RepeatVector(1)(o)
                 encoder_output.append(o)
@@ -384,6 +386,15 @@ class MAModel(object):
     def temporal_attention(self, decoder_inputs,initial_state,attention_states):
         #input : decoder_inputs, intial_state, attention_states
         #return : output, state
+        
+        #get input
+        if self.semantic:
+            last_inputs = decoder_inputs[0]
+            semantic_inputs = encoder_inputs[1]
+        else:
+            last_inputs = decoder_inputs
+        
+        
         AddLayer = Add(name = 'add_tem')
         PermuteLayer = Permute(dims = (2,1))
         ActTanh = Activation(activation = 'tanh',name ='tanh_for_d')
@@ -399,22 +410,34 @@ class MAModel(object):
             c = Dot(axes = (1))([a,attention_states]) #[none, 1, latent_dim], the summed context over encoder outputs at certain pred time step 
             return c
         
-        predT = 1
+        
         [h,s] = initial_state
         context = attention([h,s],0) 
         outputs =[]
-        for t in range(predT):
-            x = Lambda(lambda x: x[:,t ,:], name = 'X_tem{}'.format(t))(decoder_inputs) #[none,decoder_input_dim]
-            x = RepeatVector(1)(x) #[none,1,decoder_input_dim] , 1 denotes one time step
-            x = Concatenate(axis = -1)([context,x])
+        prev = None
+        for t in range(self.predT):
+            if t > 0 and prev is not None:
+            #if decoder length is larger than 1, we calculate the prediction output for current step
+                last_pred = self.Wo2(prev)
+            else:
+                last_pred = Lambda(lambda x: x[:,t ,:], name = 'X_tem{}'.format(t))(last_inputs) #[none,decoder_input_dim]
+                last_pred = RepeatVector(1)(x) #[none,1,decoder_input_dim] , 1 denotes one time step
+            
+            if self.semantic:
+                x = Concatenate(axis = -1)([context,last_pred])
+            else:
+                x = Concatenate(axis = -1)([context,last_pred, semantic_input])
             o, h, s = self.deLSTM(x, initial_state = [h, s])
             context = attention([h,s],t+1)#[none, 1, latent_dim]
             o = RepeatVector(1)(o)
             outputs.append(o)
+            prev = o
+            
         if len(outputs) > 1:
             outputs = Concatenate(axis = 1, name = 'decoder_output')(outputs)
         else:
             outputs = tf.convert_to_tensor(outputs[0])
+            
         print(outputs)
         return outputs,[h,s]
         
@@ -441,7 +464,12 @@ class MAModel(object):
                
         #decoder
         dim = 1
-        decoder_inputs = Input(shape = (None, dim))
+        last_inputs = Input(shape = (None, dim))
+        semantic_inputs = Input(shape = (None, 10))
+        if sele.semantic:
+            decoder_inputs = [last_inputs,semantic_inputs]
+        else:
+            decoder_inputs = last_inputs
         decoder_outputs, states = self.temporal_attention(decoder_inputs, encoder_state, encoder_output)
         
         #linear transform
@@ -449,7 +477,14 @@ class MAModel(object):
         #output = self.Wo1(decoder_outputs)
         output = self.Wo2(decoder_outputs)
         if not self.global_att:
-            model = Model([encoder_inputs, h0, s0, enc_att, decoder_inputs], output)
+            if not self.semantic:
+                model = Model([encoder_inputs, h0, s0, enc_att, last_inputs], output)
+            else:
+                model = Model([encoder_inputs, h0, s0, enc_att, last_inputs, semantic_inputs], output)
         else:
-            model = Model([encoder_inputs_local, encoder_inputs_global_value,encoder_inputs_global_weight, h0, s0, enc_att_local, enc_att_global, decoder_inputs], output)
+            if not self.semantic:
+                model = Model([encoder_inputs_local, encoder_inputs_global_value,encoder_inputs_global_weight, h0, s0, enc_att_local, enc_att_global, last_inputs], output)
+            else:
+                model = Model([encoder_inputs_local, encoder_inputs_global_value,encoder_inputs_global_weight, h0, s0, enc_att_local, enc_att_global, last_inputs, semantic_inputs], output)
+            
         return model
