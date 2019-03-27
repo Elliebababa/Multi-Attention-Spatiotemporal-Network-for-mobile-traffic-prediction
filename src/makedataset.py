@@ -1,12 +1,13 @@
 import pandas as pd
 import numpy as np
 import h5py as h5
+import os
 from utils import *
 import pickle
 from sklearn.preprocessing import MinMaxScaler
 
 obs_len = 6
-pre_len = 6
+pre_len = 1
 genneighbors = True
 neighbnum = 15
 data_file_path = '../data/processed/Nov_internet_data_t10_s3030_4070.h5'
@@ -15,14 +16,14 @@ sl = 0#144*7  #seasonal len
 test_len = 144 * 7 - pre_len + 1
 
 if genneighbors:
-    weights = np.load('./neighbor_weights_matrix.npy')
+    weights = np.load('./neighbor_weights_matrix_new.npy')
     neighborsid = np.zeros(shape=(900,neighbnum), dtype = int)
     for i in range(900):
         neighbor = np.argsort(-weights[i,:])[:neighbnum]
         neighborsid[i,:] = neighbor
         #print('neighbor:',weights[i,neighbor])
 
-def makedataset(data, lookback = obs_len, prestep = pre_len, cl = cl, sl = sl, history = False, genneighbors = False, neighnum = 15):
+def makedataset(data, lookback = obs_len, prestep = pre_len, cl = cl, sl = sl, history = False, genneighbors = False, neighnum = 15,gensemantic = False, senmanpath = None):
     #make dataset for seq2seq model, includes encoder input data, decoder input aux, decoder target data
     #if history == True: generate historical values for decoder input
     #if neighbors == True: generate neighbor_values and neigbor_weights for each neighbor
@@ -33,6 +34,7 @@ def makedataset(data, lookback = obs_len, prestep = pre_len, cl = cl, sl = sl, h
     #   decoder_target_data: [nodes, samples, pre_len, 1]
     #   *neighbor_values:[nodes, samples, obs_len, neighbornum]
     #   *neighbor_weight:[nodes, samples, obs_len, neighbornum]
+    #   *semantic_input_data:[nodes, samples, prestep, embedding_dim]
     # first we need to scale the data
     # mmn = MinMaxNormalization()
     # data = mmn.fit_transform(data) 
@@ -43,6 +45,8 @@ def makedataset(data, lookback = obs_len, prestep = pre_len, cl = cl, sl = sl, h
     if genneighbors:
         neighbor_values = []
         neighbor_weight = []
+    if gensemantic:
+        semantic_input_data = []
     data = np.asarray(data)
     assert np.ndim(data) == 3
     slots, features, nodes = data.shape
@@ -56,6 +60,8 @@ def makedataset(data, lookback = obs_len, prestep = pre_len, cl = cl, sl = sl, h
         if genneighbors:
             nei_v = []
             nei_w = []
+        if gensemantic:
+            semant = []
         for i in range(sl, len(n)-lookback-prestep + 1):
             input_data.append(n[i:i + lookback,])
             target_data.append(n[i + lookback:i + lookback + prestep,0,])
@@ -71,6 +77,16 @@ def makedataset(data, lookback = obs_len, prestep = pre_len, cl = cl, sl = sl, h
                 tmp2 = np.asarray(tmp2)
                 nei_w.append(tmp2)
                 #break
+            if gensemantic:
+                embedding = np.zeros((10,))
+                timestamp = 1383260400000+(i+sl)*10*60000
+                emfile = senmanpath + str(timestamp) +'.txt'
+                if os.path.exists(emfile):
+                    a = pd.read_table(emfile, skiprows = 1, header = None,sep = '\s+',index_col =0)
+                    embedding = a.iloc[nodeid+1]
+                embedding = [embedding] * prestep
+                embedding = np.asarray(embedding)
+                semant.append(embedding)
         '''output for debugging
         print(n[sl:sl+10])
         print(input_data[:2])
@@ -84,6 +100,9 @@ def makedataset(data, lookback = obs_len, prestep = pre_len, cl = cl, sl = sl, h
         if genneighbors:
             neighbor_values.append(nei_v)
             neighbor_weight.append(nei_w)        
+        if gensemantic:
+            semantic_input_data.append(semant)
+    
     
         '''
         print('finish loading node%d'%len(encoder_input_data))
@@ -94,23 +113,30 @@ def makedataset(data, lookback = obs_len, prestep = pre_len, cl = cl, sl = sl, h
     else:
         neighbor_values = np.zeros((1,1))
         neighbor_weight = np.zeros((1,1))
+    if gensemantic:
+        semantic_input_data = np.asarray(semantic_input_data)
+    else:
+        semantic_input_data = np.zeros((1,1))
     encoder_input_data = np.asarray(encoder_input_data)
     decoder_target_data = np.asarray(decoder_target_data)
     decoder_input_his = np.asarray(decoder_input_his)
     
-    return encoder_input_data, decoder_target_data, decoder_input_his, neighbor_values, neighbor_weight
+    print(semantic_input_data.shape)
+    
+    return encoder_input_data, decoder_target_data, decoder_input_his, neighbor_values, neighbor_weight,semantic_input_data
 
 def splitdata(data, testlen = test_len, shuffle = True):
     #split data into train and test set
     #data is a list of data(encoder,decoder,etc..), and each should has the same length
     #expect each data in datalist should be in the shape of [nodes, samples, obs_len, ..]
     #by default, we will use 7 days of the data for testing
-    encoder_input_data, decoder_target_data, decoder_input_his,encoder_input_aux, neighbor_values, neighbor_weights = data
+    encoder_input_data, decoder_target_data, decoder_input_his,encoder_input_aux, neighbor_values, neighbor_weights, semantic_input_data = data
     train_encoder_input, train_decoder_target, train_decoder_input_his = encoder_input_data[:,:-testlen,], decoder_target_data[:,:-testlen,], decoder_input_his[:,:-testlen,]
     test_encoder_input, test_decoder_target, test_decoder_input_his = encoder_input_data[:,-testlen:,], decoder_target_data[:,-testlen:,], decoder_input_his[:,-testlen:,]
     train_encoder_input_aux,test_encoder_input_aux = encoder_input_aux[:,:-testlen,],encoder_input_aux[:,-testlen:,]
     train_neighbor_values,test_neighbor_values = neighbor_values[:,:-testlen,],neighbor_values[:,-testlen:,]
     train_neighbor_weights,test_neighbor_weights = neighbor_weights[:,:-testlen,],neighbor_weights[:,-testlen:,]
+    train_semantic_input_data, test_semantic_input_data = semantic_input_data[:,:-testlen,],semantic_input_data[:,-testlen:,]
     
     train_decoder_input = np.zeros(train_decoder_target.shape)
     train_decoder_input[:,:,1:,] = train_decoder_target[:,:,:-1]
@@ -124,7 +150,7 @@ def splitdata(data, testlen = test_len, shuffle = True):
         test_decoder_target = np.expand_dims(test_decoder_target, axis = -1)
 
     return train_encoder_input_aux,test_encoder_input_aux,train_encoder_input, train_decoder_target, train_decoder_input_his, test_encoder_input, test_decoder_target, test_decoder_input_his, train_decoder_input, \
-            train_neighbor_values,test_neighbor_values,train_neighbor_weights,test_neighbor_weights
+            train_neighbor_values,test_neighbor_values,train_neighbor_weights,test_neighbor_weights, train_semantic_input_data, test_semantic_input_data
     
 
 
@@ -134,13 +160,13 @@ if __name__ == '__main__':
     data = f['data']
     s = data.shape
     data = np.reshape(data,(s[0],s[1],s[2]*s[3]))
-    t1,t2,t3, nei1, nei2 = makedataset(data,history = False, genneighbors = True)
+    t1,t2,t3, nei1, nei2, sem = makedataset(data,history = False, genneighbors = True, gensemantic = True, senmanpath = '../data/processed/walking_embedding_60min/')
     np.save('encoder_input_data.npy',t1)
     np.save('decoder_target_data.npy',t2)
     np.save('decoder_input_his.npy',t3)
     np.save('neighbor_values.npy', nei1)
     np.save('neighbor_weights.npy', nei2)
-    
+    np.save('semantic_input_data.npy', sem)
     
     f2 = h5.File('../data/processed/Nov_call_data_t10_s3030_4070.h5','r')
     f3 = h5.File('../data/processed/Nov_sms_data_t10_s3030_4070.h5','r')
@@ -152,7 +178,7 @@ if __name__ == '__main__':
     s3 = data3.shape
     data3 = np.reshape(data2,(s3[0],s3[1],s3[2]*s3[3]))
     data23 = np.concatenate([data2,data3],axis = 1)
-    aux, _ , _, _, _= makedataset(data23,history = False,genneighbors = False) 
+    aux, _ , _, _, _,_= makedataset(data23,history = False,genneighbors = False, gensemantic = False) 
     print('data_aux',data23.shape)
     print('aux',aux.shape)
     np.save('encoder_input_aux.npy',aux)
@@ -164,11 +190,12 @@ if __name__ == '__main__':
     t4 = np.load('encoder_input_aux.npy','r')
     t5 = np.load('neighbor_values.npy')
     t6 = np.load('neighbor_weights.npy')
-    daux,daux2,d1,d2,d3,d4,d5,d6,d7,nv1,nv2,nw1,nw2 = splitdata([t1,t2,t3,t4,t5,t6])
+    t7 = np.load('semantic_input_data.npy')
+    daux,daux2,d1,d2,d3,d4,d5,d6,d7,nv1,nv2,nw1,nw2,sem1,sem2 = splitdata([t1,t2,t3,t4,t5,t6,t7])
     #return train_encoder_input_aux,test_encoder_input_aux,train_encoder_input, train_decoder_target, train_decoder_input_his, test_encoder_input, test_decoder_target, test_decoder_input_his, train_decoder_input
     #train_neighbor_values,test_neighbor_values,train_neighbor_weights,test_neighbor_weights
     
-    f = h5.File('train_test_set_en{}_de{}_Nov_neighbor.h5'.format(obs_len, pre_len),'w')
+    f = h5.File('train_test_set_en{}_de{}_Nov_neighbor_semantic.h5'.format(obs_len, pre_len),'w')
     f.create_dataset('description', data = 'data with none historical data')
     f.create_dataset('train_encoder_input_aux',data = daux)
     f.create_dataset('test_encoder_input_aux',data = daux2)
@@ -183,6 +210,8 @@ if __name__ == '__main__':
     f.create_dataset('test_neighbor_values', data = nv2)
     f.create_dataset('train_neighbor_weights', data = nw1)
     f.create_dataset('test_neighbor_weights', data = nw2)
+    f.create_dataset('train_semantic_input_data', data = sem1)
+    f.create_dataset('test_semantic_input_data', data = sem2)
     f.close()
     
 

@@ -24,10 +24,10 @@ for i in range(900):
     exp_sum = 0
     for j in neighborsid[i,:]:
         j = int(j)
-        exp_sum += np.exp(data[i,j])
+        exp_sum += (data[i,j])
     for j in range(900):
         if data[i,j] != 0:
-            data[i,j] = np.exp(data[i,j])/exp_sum
+            data[i,j] = (data[i,j])/exp_sum
 
-np.save('./neighbor_weights_matrix.npy', data)
+np.save('./neighbor_weights_matrix_new.npy', data)
 

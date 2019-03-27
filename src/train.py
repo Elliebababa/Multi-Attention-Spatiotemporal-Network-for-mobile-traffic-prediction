@@ -40,7 +40,7 @@ patience = 5  # early stopping patience
 batch_size = 2**10
 verbose = 2
 #model for training
-modelbase = 'MAModel-global' # lstm, seq2seq, MAModel, MAModel-global
+modelbase = 'MAModel' # lstm, seq2seq, MAModel, MAModel-global
 m = 64 #hidden layer of MAModel
 predstep = 1
 
@@ -49,6 +49,7 @@ print('\nlr: %.5f, lookback: %d, nb_epoch: %d, patience:%d, nb_epoch_cont: %d, b
 print('\n','='*15,'\n')
 
 def scale_data(data, ran=(0, 1)):
+    #reahpe the data into (samples, dim) and then reshape it back
     shape = data.shape
     mmn = MinMaxScaler(feature_range = ran)
     data_scale = mmn.fit_transform(data.reshape(shape[0],-1))
@@ -72,12 +73,22 @@ def build_model(modelbase = modelbase):
         encoder_model = None
         decoder_model = model
     elif modelbase == 'MAModel':
-        a = MAModel()
+        a = MAModel(predT = predstep)
         model = a.build_model(input_dim = int(5))
         encoder_model = None
         decoder_model = None
     elif modelbase == 'MAModel-global':
-        a = MAModel(global_att = True)
+        a = MAModel(predT = predstep,global_att = True)
+        model = a.build_model(input_dim = int(5))
+        encoder_model = None
+        decoder_model = None
+    elif modelbase == 'MAModel-global-semantic':
+        a = MAModel(predT = predstep,global_att = True, semantic = True)
+        model = a.build_model(input_dim = int(5))
+        encoder_model = None
+        decoder_model = None
+    elif modelbase == 'MAModel-semantic':
+        a = MAModel(predT = predstep,global_att = False, semantic = True)
         model = a.build_model(input_dim = int(5))
         encoder_model = None
         decoder_model = None
@@ -89,15 +100,13 @@ def build_model(modelbase = modelbase):
 
 import click
 @click.command()
-@click.option('--modelbase',default= modelbase, help='lstm, seq2seq, MAModel, MAModel-global')
+@click.option('--modelbase',default= modelbase, help='lstm, seq2seq, MAModel, MAModel-global, MAModel-global-semantic, MAModel-semantic') #with - means having the module in the model
 def main(modelbase):
     modelbase = modelbase
     # load data and make dataset
     print('loading data...')
     ts = time.time()
-    fname = 'train_test_set_en6_de{}_Nov_neighbor.h5'.format(predstep)
-    if modelbase == 'MAModel-global':
-        fname = 'train_test_set_en6_de1_Nov_neighbor.h5'
+    fname = 'train_test_set_en6_de{}_Nov_neighbor_semantic.h5'.format(predstep)
     train_encoder_input, train_encoder_input_aux, train_decoder_input, train_decoder_input_his, train_decoder_target, test_encoder_input, test_encoder_input_aux, test_decoder_input_his, test_decoder_target, \
         train_neighbor_values, test_neighbor_values, train_neighbor_weights, test_neighbor_weights = loadData(fname)
 
@@ -227,7 +236,8 @@ def main(modelbase):
     if modelbase =='seq2seq':
         train_pred =  model.predict([train_encoder_input, train_decoder_input], verbose = verbose, batch_size = batch_size)
     elif modelbase == 'lstm':
-        train_pred =  model.predict([train_encoder_input], verbose = verbose, batch_size = batch_size)
+        train_pred = train_decoder_targetls
+        #train_pred =  model.predict([train_encoder_input], verbose = verbose, batch_size = batch_size)
     elif modelbase =='MAModel':
         s0_train = h0_train = np.zeros((train_encoder_input.shape[0],m))
         enc_att = np.ones((train_encoder_input.shape[0],1,train_encoder_input.shape[2]))
@@ -249,7 +259,7 @@ def main(modelbase):
         test_pred = decoder_prediction([test_encoder_input], encoder_model, decoder_model, pre_step = predstep)
         #test_pred = model.predict([test_encoder_input, test_decoder_input], encoder_model, decoder_model)
     elif modelbase == 'lstm':
-        test_pred = model.predict([test_encoder_input], verbose = verbose, batch_size = batch_size)
+        test_pred = lstm_prediction([test_encoder_input], model, pre_step = predstep)
     elif modelbase =='MAModel':
         s0_test = h0_test = np.zeros((test_encoder_input.shape[0],m))
         enc_att = np.ones((test_encoder_input.shape[0],1,test_encoder_input.shape[2]))
