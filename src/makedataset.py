@@ -15,8 +15,13 @@ cl = 0#144    #cyclic len
 sl = 0#144*7  #seasonal len
 test_len = 144 * 7 - pre_len + 1
 
+genneighbor = True
+gensemantic = False
+genhis = False
+genh5File = False
+
 if genneighbors:
-    weights = np.load('./neighbor_weights_matrix_new.npy')
+    weights = np.load('./neighbor_weights_matrix_directed.npy')
     neighborsid = np.zeros(shape=(900,neighbnum), dtype = int)
     for i in range(900):
         neighbor = np.argsort(-weights[i,:])[:neighbnum]
@@ -160,28 +165,33 @@ if __name__ == '__main__':
     data = f['data']
     s = data.shape
     data = np.reshape(data,(s[0],s[1],s[2]*s[3]))
-    t1,t2,t3, nei1, nei2, sem = makedataset(data,history = False, genneighbors = True, gensemantic = True, senmanpath = '../data/processed/walking_embedding_60min/')
+    t1,t2,t3, nei1, nei2, sem = makedataset(data,history = False, genneighbors = genneighbor, gensemantic = gensemantic, senmanpath = '../data/processed/walking_embedding_60min/')
     np.save('encoder_input_data.npy',t1)
     np.save('decoder_target_data.npy',t2)
     np.save('decoder_input_his.npy',t3)
-    np.save('neighbor_values.npy', nei1)
-    np.save('neighbor_weights.npy', nei2)
-    np.save('semantic_input_data.npy', sem)
     
-    f2 = h5.File('../data/processed/Nov_call_data_t10_s3030_4070.h5','r')
-    f3 = h5.File('../data/processed/Nov_sms_data_t10_s3030_4070.h5','r')
-    data2 = f2['data'].value
-    data3 = f3['data'].value
-
-    s2 = data2.shape
-    data2 = np.reshape(data2,(s2[0],s2[1],s2[2]*s2[3]))
-    s3 = data3.shape
-    data3 = np.reshape(data2,(s3[0],s3[1],s3[2]*s3[3]))
-    data23 = np.concatenate([data2,data3],axis = 1)
-    aux, _ , _, _, _,_= makedataset(data23,history = False,genneighbors = False, gensemantic = False) 
-    print('data_aux',data23.shape)
-    print('aux',aux.shape)
-    np.save('encoder_input_aux.npy',aux)
+    if genneighbors:
+        np.save('neighbor_values.npy', nei1)
+        np.save('neighbor_weights.npy', nei2)
+    
+    if gensemantic:
+        np.save('semantic_input_data.npy', sem)
+    
+    if not os.path.exists('encoder_input_aux.npy'):
+        f2 = h5.File('../data/processed/Nov_call_data_t10_s3030_4070.h5','r')
+        f3 = h5.File('../data/processed/Nov_sms_data_t10_s3030_4070.h5','r')
+        data2 = f2['data'].value
+        data3 = f3['data'].value
+    
+        s2 = data2.shape
+        data2 = np.reshape(data2,(s2[0],s2[1],s2[2]*s2[3]))
+        s3 = data3.shape
+        data3 = np.reshape(data2,(s3[0],s3[1],s3[2]*s3[3]))
+        data23 = np.concatenate([data2,data3],axis = 1)
+        aux, _ , _, _, _,_= makedataset(data23,history = False,genneighbors = False, gensemantic = False) 
+        print('data_aux',data23.shape)
+        print('aux',aux.shape)
+        np.save('encoder_input_aux.npy',aux)
  
 
     t1 = np.load('encoder_input_data.npy','r')
@@ -195,25 +205,27 @@ if __name__ == '__main__':
     #return train_encoder_input_aux,test_encoder_input_aux,train_encoder_input, train_decoder_target, train_decoder_input_his, test_encoder_input, test_decoder_target, test_decoder_input_his, train_decoder_input
     #train_neighbor_values,test_neighbor_values,train_neighbor_weights,test_neighbor_weights
     
-    f = h5.File('train_test_set_en{}_de{}_Nov_neighbor_semantic.h5'.format(obs_len, pre_len),'w')
-    f.create_dataset('description', data = 'data with none historical data')
-    f.create_dataset('train_encoder_input_aux',data = daux)
-    f.create_dataset('test_encoder_input_aux',data = daux2)
-    f.create_dataset('train_encoder_input',data = d1)
-    f.create_dataset('train_decoder_target',data = d2)
-    #f.create_dataset('train_decoder_input_his',data = d3 )
-    f.create_dataset('test_encoder_input',data = d4)
-    f.create_dataset('test_decoder_target',data = d5)
-    #f.create_dataset('test_decoder_input_his',data = d6)
-    f.create_dataset('train_decoder_input',data = d7)
-    f.create_dataset('train_neighbor_values', data = nv1)
-    f.create_dataset('test_neighbor_values', data = nv2)
-    f.create_dataset('train_neighbor_weights', data = nw1)
-    f.create_dataset('test_neighbor_weights', data = nw2)
-    f.create_dataset('train_semantic_input_data', data = sem1)
-    f.create_dataset('test_semantic_input_data', data = sem2)
-    f.close()
     
+    if genh5File:
+        f = h5.File('train_test_set_en{}_de{}_Nov_neighbor_semantic.h5'.format(obs_len, pre_len),'w')
+        f.create_dataset('description', data = 'data with none historical data')
+        f.create_dataset('train_encoder_input_aux',data = daux)
+        f.create_dataset('test_encoder_input_aux',data = daux2)
+        f.create_dataset('train_encoder_input',data = d1)
+        f.create_dataset('train_decoder_target',data = d2)
+        #f.create_dataset('train_decoder_input_his',data = d3 )
+        f.create_dataset('test_encoder_input',data = d4)
+        f.create_dataset('test_decoder_target',data = d5)
+        #f.create_dataset('test_decoder_input_his',data = d6)
+        f.create_dataset('train_decoder_input',data = d7)
+        f.create_dataset('train_neighbor_values', data = nv1)
+        f.create_dataset('test_neighbor_values', data = nv2)
+        f.create_dataset('train_neighbor_weights', data = nw1)
+        f.create_dataset('test_neighbor_weights', data = nw2)
+        f.create_dataset('train_semantic_input_data', data = sem1)
+        f.create_dataset('test_semantic_input_data', data = sem2)
+        f.close()
+        
 
 
 

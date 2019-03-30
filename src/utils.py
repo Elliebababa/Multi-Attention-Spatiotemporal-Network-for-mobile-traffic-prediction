@@ -60,6 +60,13 @@ def loadData(fname):
     else:
       train_neighbor_values = np.zeros((1,1))
       train_neighbor_weights = np.zeros((1,1))
+      
+    if 'train_semantic_input_data' in f.keys() and 'test_semantic_input_data' in f.keys():
+      train_semantic_input_data = f['train_semantic_input_data'].value
+      test_semantic_input_data = f['test_semantic_input_data'].value
+    else:
+      train_semantic_input_data = np.zeros((1,1))
+      test_semantic_input_data = np.zeros((1,1))
     train_decoder_target = f['train_decoder_target'].value
     train_encoder_input = f['train_encoder_input'].value
     train_encoder_input_aux = f['train_encoder_input_aux'].value
@@ -67,7 +74,7 @@ def loadData(fname):
     
     f.close()
     return train_encoder_input, train_encoder_input_aux, train_decoder_input, train_decoder_input_his, train_decoder_target, test_encoder_input, test_encoder_input_aux, test_decoder_input_his, test_decoder_target, \
-        train_neighbor_values, test_neighbor_values, train_neighbor_weights, test_neighbor_weights
+        train_neighbor_values, test_neighbor_values, train_neighbor_weights, test_neighbor_weights, train_semantic_input_data, test_semantic_input_data
     
 
 '''
