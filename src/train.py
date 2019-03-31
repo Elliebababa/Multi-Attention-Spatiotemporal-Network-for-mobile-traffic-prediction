@@ -34,13 +34,13 @@ T = 144
 len_test = T * days_test
 lr = 0.0002
 look_back = 6 # look back of interval, the same as len_closeness
-nb_epoch = 0
+nb_epoch = 100
 nb_epoch_cont = 0
 patience = 100  # early stopping patience
 batch_size = 2**10
 verbose = 2
 #model for training
-modelbase = 'lstm' #RNN lstm, seq2seq, MAModel, MAModel-global,MAModel-global-semantic
+modelbase = 'MAModel-global' #RNN lstm, seq2seq, MAModel, MAModel-global,MAModel-global-semantic
 #-module denotes adding the module to model, which is on the contrary to my essay
 m = 64 #hidden layer of MAModel
 predstep = 6
@@ -108,7 +108,7 @@ def main(modelbase):
     # load data and make dataset
     print('loading data...')
     ts = time.time()
-    fname = 'train_test_set_en6_de{}_Nov_neighbor2.h5'.format(predstep) 
+    fname = 'train_test_set_en6_de{}_Nov_neighbor_new.h5'.format(predstep) 
     train_encoder_input, train_encoder_input_aux, train_decoder_input, train_decoder_input_his, train_decoder_target, test_encoder_input, test_encoder_input_aux, test_decoder_input_his, test_decoder_target, \
         train_neighbor_values, test_neighbor_values, train_neighbor_weights, test_neighbor_weights , train_semantic_input, test_semantic_input = loadData(fname)
 
@@ -161,8 +161,16 @@ def main(modelbase):
         print('train_neighbor_weights:{}, \ntest_neighbor_weights:{}'.format(train_neighbor_weights.shape, test_neighbor_weights.shape))
     
     #semantic input
-    train_semantic_input = np.vstack(np.swapaxes(train_semantic_input,0,1))
-    test_semantic_input = np.vstack(np.swapaxes(test_semantic_input,0,1))
+    if modelbase[-8:] == 'semantic':
+        train_semantic_input = np.vstack(np.swapaxes(train_semantic_input,0,1))
+        test_semantic_input = np.vstack(np.swapaxes(test_semantic_input,0,1))
+        mmn_forsemantic =MinMaxNormalization()
+        semantic_input = np.concatenate([train_semantic_input,test_semantic_input],axis=0)
+        mmn_forsemantic.fit_transform(semantic_input)
+        train_semantic_input = semantic_input[:train_semantic_input.shape[0]]
+        test_semantic_input = semantic_input[train_semantic_input.shape[0]:]
+        print('train_semantic_input:{}'.format(train_semantic_input.shape))
+        print('test_semantic_input:{}'.format(test_semantic_input.shape))
     
     #decoder input
     train_decoder_input = np.vstack(np.swapaxes(train_decoder_input,0,1))

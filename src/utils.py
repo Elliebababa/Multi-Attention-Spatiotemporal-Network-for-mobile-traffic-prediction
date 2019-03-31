@@ -18,7 +18,7 @@ class MinMaxNormalization(object):
 
     def transform(self, X):
         X = 1. * (X - self._min) / (self._max - self._min)
-        X = X * 2. - 1.
+        #X = X * 2. - 1.
         return X
 
     def fit_transform(self, X):

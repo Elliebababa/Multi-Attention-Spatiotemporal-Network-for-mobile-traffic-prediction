@@ -345,6 +345,7 @@ class MAModel(object):
         PermuteLayer2 = Permute(dims = (2,1))
         ActTanh2 = Activation(activation = 'tanh',name ='tanh_for_e2')
         ActSoftmax2 = Activation(activation = 'softmax', name ='softmax_for_beta')
+        '''
         def global_attention(states, step, prior):
             #for global attention query
             #global inputs [none, T, neighbornum]
@@ -360,7 +361,7 @@ class MAModel(object):
             g_ = Lambda(lambda x: (1-self.lamb)*x + self.lamb*prior)(g)
             beta = ActSoftmax2(g)
             return beta
-            
+        '''    
         def global_attention_v2(states, step, prior):
             #for global attention query
             #global inputs[0](values) [none, T, neighbornum]
@@ -465,13 +466,17 @@ class MAModel(object):
                 last_pred = Lambda(lambda x: x[:,t ,:], name = 'X_tem{}'.format(t))(last_inputs) #[none,decoder_input_dim]
                 last_pred = RepeatVector(1)(last_pred) #[none,1,decoder_input_dim] , 1 denotes one time step
             
-            if self.semantic:
-                x = Concatenate(axis = -1)([context,last_pred, semantic_inputs])
-            else:
-                x = Concatenate(axis = -1)([context,last_pred])
+            #if self.semantic:
+            #    x = Concatenate(axis = -1)([context,last_pred, semantic_inputs])
+            #else:
+            x = Concatenate(axis = -1)([context,last_pred])
             o, h, s = self.deLSTM(x, initial_state = [h, s])
             context = attention([h,s],t+1)#[none, 1, latent_dim]
             o = RepeatVector(1)(o)
+            if self.semantic:
+            #    print('semantic input: ',semantic_inputs)
+            #    print('o: ',o)
+                o = Concatenate(axis = -1)([o, semantic_inputs])
             outputs.append(o)
             prev = o
             

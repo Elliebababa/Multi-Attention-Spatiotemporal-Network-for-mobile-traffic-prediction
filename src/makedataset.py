@@ -7,7 +7,7 @@ import pickle
 from sklearn.preprocessing import MinMaxScaler
 
 obs_len = 6
-pre_len = 1
+pre_len = 6
 genneighbors = True
 neighbnum = 15
 data_file_path = '../data/processed/Nov_internet_data_t10_s3030_4070.h5'
@@ -18,7 +18,8 @@ test_len = 144 * 7 - pre_len + 1
 genneighbor = True
 gensemantic = False
 genhis = False
-genh5File = False
+genh5File = True
+genaux = True
 
 if genneighbors:
     weights = np.load('./neighbor_weights_matrix_directed.npy')
@@ -177,7 +178,7 @@ if __name__ == '__main__':
     if gensemantic:
         np.save('semantic_input_data.npy', sem)
     
-    if not os.path.exists('encoder_input_aux.npy'):
+    if genaux:
         f2 = h5.File('../data/processed/Nov_call_data_t10_s3030_4070.h5','r')
         f3 = h5.File('../data/processed/Nov_sms_data_t10_s3030_4070.h5','r')
         data2 = f2['data'].value
@@ -207,7 +208,7 @@ if __name__ == '__main__':
     
     
     if genh5File:
-        f = h5.File('train_test_set_en{}_de{}_Nov_neighbor_semantic.h5'.format(obs_len, pre_len),'w')
+        f = h5.File('train_test_set_en{}_de{}_Nov_neighbor_new.h5'.format(obs_len, pre_len),'w')
         f.create_dataset('description', data = 'data with none historical data')
         f.create_dataset('train_encoder_input_aux',data = daux)
         f.create_dataset('test_encoder_input_aux',data = daux2)
