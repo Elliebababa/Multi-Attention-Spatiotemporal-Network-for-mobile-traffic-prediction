@@ -43,7 +43,7 @@ verbose = 2
 modelbase = 'MAModel-global' #RNN lstm, seq2seq, MAModel, MAModel-global,MAModel-global-semantic
 #-module denotes adding the module to model, which is on the contrary to my essay
 m = 64 #hidden layer of MAModel
-predstep = 6
+predstep = 1
 
 print('\n','='*5, ' configuration ', '='*5)
 print('model: ', modelbase)
@@ -108,7 +108,7 @@ def main(modelbase):
     # load data and make dataset
     print('loading data...')
     ts = time.time()
-    fname = 'train_test_set_en6_de{}_Nov_neighbor_new.h5'.format(predstep) 
+    fname = 'train_test_set_en6_de{}_Nov_neighbor_semantic.h5'.format(predstep) 
     train_encoder_input, train_encoder_input_aux, train_decoder_input, train_decoder_input_his, train_decoder_target, test_encoder_input, test_encoder_input_aux, test_decoder_input_his, test_decoder_target, \
         train_neighbor_values, test_neighbor_values, train_neighbor_weights, test_neighbor_weights , train_semantic_input, test_semantic_input = loadData(fname)
 
