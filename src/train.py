@@ -34,16 +34,16 @@ T = 144
 len_test = T * days_test
 lr = 0.0002
 look_back = 6 # look back of interval, the same as len_closeness
-nb_epoch = 100
+nb_epoch = 0
 nb_epoch_cont = 0
 patience = 100  # early stopping patience
 batch_size = 2**10
 verbose = 2
 #model for training
-modelbase = 'MAModel-global' #RNN lstm, seq2seq, MAModel, MAModel-global,MAModel-global-semantic
+modelbase = 'seq2seq' #RNN lstm, seq2seq, MAModel, MAModel-global,MAModel-global-semantic
 #-module denotes adding the module to model, which is on the contrary to my essay
 m = 64 #hidden layer of MAModel
-predstep = 1
+predstep = 6
 
 print('\n','='*5, ' configuration ', '='*5)
 print('model: ', modelbase)
@@ -108,7 +108,7 @@ def main(modelbase):
     # load data and make dataset
     print('loading data...')
     ts = time.time()
-    fname = 'train_test_set_en6_de{}_Nov_neighbor_semantic.h5'.format(predstep) 
+    fname = 'train_test_set_en6_de{}_Nov_neighbor_new.h5'.format(predstep) 
     train_encoder_input, train_encoder_input_aux, train_decoder_input, train_decoder_input_his, train_decoder_target, test_encoder_input, test_encoder_input_aux, test_decoder_input_his, test_decoder_target, \
         train_neighbor_values, test_neighbor_values, train_neighbor_weights, test_neighbor_weights , train_semantic_input, test_semantic_input = loadData(fname)
 
@@ -206,7 +206,7 @@ def main(modelbase):
     #build model
     model, encoder_model, decoder_model = build_model(modelbase)
     #filename for saving the best model
-    fname_param = os.path.join('{}_pred{}.best.h5'.format(modelbase, predstep))
+    fname_param = os.path.join('bestmodel/{}_pred{}.best.h5'.format(modelbase, predstep))
     #callbacks
     early_stopping = EarlyStopping(monitor='val_rmse', patience=patience, mode='min')
     model_checkpoint = ModelCheckpoint(fname_param, monitor='val_rmse', verbose=0, save_best_only=True, mode='min')
@@ -421,6 +421,10 @@ def main(modelbase):
 
     trainY = np.swapaxes(train_decoder_target_orig, 0, 1)
     testY = np.swapaxes(test_decoder_target_orig, 0, 1)
+
+
+    np.save('{}_de_{}_pred.npy'.format(modelbase, predstep),testPredict)
+    np.save('{}_de_{}_test.npy'.format(modelbase, predstep),testY)
 
     print('trainY shape:',trainY.shape)
     print('trainPredict.shape',trainPredict.shape)

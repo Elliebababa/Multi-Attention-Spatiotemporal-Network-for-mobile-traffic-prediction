@@ -12,7 +12,7 @@ warnings.filterwarnings("ignore")
 intervals = 144
 daytest = 7
 testlen = intervals*daytest
-stepahead = 1
+stepahead = 6
 #f1 = h5.File('../../../data/processed/internet_t10_s3030_4070.h5','r')
 f1 = h5.File('../../data/processed/Nov_internet_data_t10_s3030_4070.h5','r')
 dataX = f1['data'].value
@@ -185,8 +185,6 @@ def test_set_validation(X, config, stepahead):
         #print('now his: ',history[-5:])
     
     
-    np.save('arima_predictins_step{}.npy'.format(stepahead), predictions)
-    np.save('arima_tests_step{}.npy'.format(stepahead), testvalues)
     
     predictions = np.asarray(predictions)
     testvalues = np.asarray(testvalues)
@@ -244,6 +242,11 @@ def arima_test_all(dataX, cfg, stepahead,parallel = False, n_jobs = 32):
     print('mean rmses: %.8f'%(np.mean(rmses)))
     print('std rmses: %.8f'%(np.std(rmses)))
     print('\n\n')
+    
+    np.save('arima_predictins_step{}.npy'.format(stepahead), np.asarray(all_predict_value))
+    np.save('arima_tests_step{}.npy'.format(stepahead), np.asarray(all_true_value))
+    
+    
     print('all nrmse: %8f'%(Nor_rmse(all_true_value,all_predict_value)))
     print('all mae: %8f'%(cal_mae(all_true_value,all_predict_value)))
     print('all rmse: %8f'%(cal_rmse(all_true_value,all_predict_value)))
