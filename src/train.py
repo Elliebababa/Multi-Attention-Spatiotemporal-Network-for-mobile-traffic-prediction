@@ -35,7 +35,7 @@ patience = 100  # early stopping patience, for I find early stopping did not con
 batch_size = 2**10
 verbose = 2
 #model for training
-modelbase = 'seq2seq_aux' #RNN , lstm, lstm_aux, seq2seq, seq2seq_aux , MASTNN, MASTNN-spatioatt, MASTNN-auxatt, MASTNN-decodelast, MASTNN-decodemean
+modelbase = 'MASTNN' #RNN , lstm, lstm_aux, seq2seq, seq2seq_aux , MASTNN, MASTNN-spatioatt, MASTNN-auxatt, MASTNN-decodelast, MASTNN-decodemean
 m = 64 #hidden layer of MAModel
 predstep = 1
 # for testing the model training performance
@@ -75,20 +75,20 @@ def build_model(modelbase = modelbase):
         encoder_model = None
         decoder_model = None
         if modelbase == 'MASTNN':
-            a = MASTNN(predT = predstep,T = lookback)
+            a = MASTNN(predT = predstep,T = look_back)
             model = a.build_model(input_dim = 5)
             #MASTNN-spatioatt, MASTNN-auxatt, MASTNN-decodelast, MASTNN-decodemean
         elif modelbase == 'MASTNN-spatioatt':
-            a = MASTNN(predT = predstep,global_att = False,T = lookback)
+            a = MASTNN(predT = predstep,global_att = False,T = look_back)
             model = a.build_model(input_dim = 5)
         elif modelbase == 'MASTNN-auxatt':
-            a = MASTNN(predT = predstep,T = lookback)
+            a = MASTNN(predT = predstep,T = look_back)
             model = a.build_model(input_dim = 5)
         elif modelbase == 'MASTNN-decodelast':
-            a = MASTNN(predT = predstep,T = lookback)
+            a = MASTNN(predT = predstep,T = look_back)
             model = a.build_model(input_dim = 5)
         elif modelbase == 'MASTNN-decodemean':
-            a = MASTNN(predT = predstep, T = lookback)
+            a = MASTNN(predT = predstep, T = look_back)
             model = a.build_model(input_dim = 5)
     adam = Adam(lr = lr)
     model.compile(loss = 'mse', optimizer = adam, metrics = [metrics.rmse, metrics.mape, metrics.ma])

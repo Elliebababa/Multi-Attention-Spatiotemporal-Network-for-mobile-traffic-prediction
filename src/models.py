@@ -67,7 +67,8 @@ def seq2seq(lookback = 6, input_dim = 1, latent_dim = latent_dim):
     return model, encoder_model, decoder_model
 
 def lstm_prediction(test_input, model, pre_step = 1):
-    #test_input (samples, steps, n)
+    #using lstm model for multi-step prediction
+    #test_input: [samples, steps, n]
     #lstm seq
     lstm_i_seq = test_input[0]
     lstm_o_seq = np.zeros((test_input[0].shape[0], pre_step, 1))
@@ -80,7 +81,7 @@ def lstm_prediction(test_input, model, pre_step = 1):
     return lstm_o_seq
     
 class MASTNN(object):
-    def __init__(self, T = 6, predT = 1, encoder_latent_dim = 64, decoder_latent_dim = 64, aux_att = True, global_att = True, neigh_num = 15, semantic = False, trainmode = False):
+    def __init__(self, T = 6, predT = 1, encoder_latent_dim = 64, decoder_latent_dim = 64, aux_att = True, global_att = True, context = 'att' , neigh_num = 15 , trainmode = False):
         super(MASTNN, self).__init__()
         self.trainmode = trainmode # when trainmode is no, the decoder will use the truth value of prev time step to decode
         self.T = T
@@ -90,7 +91,7 @@ class MASTNN(object):
         #lstm for encoder and decoder 
         self.enLSTM = LSTM(encoder_latent_dim, return_state = True, name = 'encoder_lstm')
         self.deLSTM = LSTM(decoder_latent_dim, return_state = True, name = 'decoder_lstm')
-        #encoder local attention parameter weight matrix
+        #encoder auxiliary attention parameter weight matrix
         self.We = Dense(units = T, input_dim = 2 * encoder_latent_dim, activation = 'linear', use_bias = False, name = 'We')
         self.Ue = Dense(units = T, input_dim = T, activation = 'linear', use_bias = False, name = 'Ue')
         self.Ve = Dense(units = 1, input_dim = T, activation = 'linear', use_bias = False, name = 'Ve')
@@ -101,21 +102,18 @@ class MASTNN(object):
         print('lambda:',self.lamb)
         self.Wg = Dense(units = T, input_dim = 2 * encoder_latent_dim, activation = 'linear', use_bias = False, name = 'Wg')
         self.Ug = Dense(units = T, input_dim = T, activation = 'linear', use_bias = False, name = 'Ug')
-        self.ug = Dense(units = 1, input_dim = T, activation = 'linear', use_bias = False, name = 'ug')
-        self.Wg_ = Dense(units = T, input_dim = neigh_num, activation = 'linear', use_bias = False, name = 'Wg_')
         self.Vg = Dense(units = 1, input_dim = T, activation = 'linear', use_bias = False, name = 'Vg')
-        #decoder temporal attention parameter weight matrix
-        self.semantic = semantic
+        #decoder attention parameter weight matrix
         self.Wd = Dense(units = decoder_latent_dim, input_dim = decoder_latent_dim, activation = 'linear', use_bias = False, name = 'Wd')
         self.Wd_ = Dense(units = decoder_latent_dim, input_dim = 2*encoder_latent_dim, activation = 'linear', use_bias = False, name = 'Wd_')
         self.Vd = Dense(units = 1, input_dim = decoder_latent_dim, activation = 'linear', use_bias = False, name = 'Vd')
         #output parameter matrix
-        #self.Wo1 = Dense(units = 64, activation = 'sigmoid', use_bias = True, name = 'Dense1_for_output')
-        self.Wo2 = Dense(units = 1, activation = 'sigmoid', use_bias = True, name = 'Dense2_for_output')
+        self.Wo = Dense(units = 1, activation = 'sigmoid', use_bias = True, name = 'Dense2_for_output')
         
-    def spatial_attention(self,encoder_inputs, enc_attn, init_states):
-        # input : encoder_inputs [batch_size, time_steps, input_dim], init_states,
-        #            att_flag: 1:only local, 2:local+ global
+    def encoder_attention(self,encoder_inputs, enc_attn, init_states):
+        # input : encoder_inputs [batch_size, time_steps, input_dim],  
+        #          enc_attn :attentin weight for the first timestep (ones matrix by default)
+        #          init_states: initial states for encoder (zeros matrix by default)
         # return : encoder_output, encoder_state, encoder_att
         [h,s] = init_states
         encoder_att = []
@@ -159,15 +157,13 @@ class MASTNN(object):
         ActTanh2 = Activation(activation = 'tanh',name ='tanh_for_e2')
         ActSoftmax2 = Activation(activation = 'softmax', name ='softmax_for_beta')
         
-        def global_attention_v2(states, step, prior):
+        def global_attention(states, step, prior):
             #for global attention query
             #global inputs[0](values) [none, T, neighbornum]
             #linear map Wg
             states = Concatenate(axis = 1, name = 'state_gl_{}'.format(step))(states)
             Wgs = self.Wg(states) #[none,T]
             Ugy = self.Ug(PermuteLayer2(global_inputs[0])) # [none, neighbornum, T]
-            #Wxu = self.ug(PermuteLayer2(global_inputs[0])) # [none, neighbornum, 1]
-            #Wgx = self.Wg_(Wxu) # [none,neighbornum,T]
             Wgs_ = RepeatVector(global_inputs[0].shape[2])(Wgs) # [none, neighbornum, T]
             y2 = AddLayer2([Wgs_,Ugy])
             g = self.Vg(ActTanh2(y2))
@@ -203,7 +199,7 @@ class MASTNN(object):
                 o = RepeatVector(1)(o)
                 encoder_output.append(o)
                 local_attn = local_attention([h,s], t+1)
-                global_attn = global_attention_v2([h,s],t+1, prior)
+                global_attn = global_attention([h,s],t+1, prior)
                 encoder_att.append([local_attn, global_attn])
         
         if not global_att: 
@@ -223,16 +219,12 @@ class MASTNN(object):
         
         return encoder_output, [h,s], encoder_att
     
-    def temporal_attention(self, decoder_inputs,initial_state,attention_states):
+    def decoder_attention(self, decoder_inputs,initial_state,attention_states):
         #input : decoder_inputs, intial_state, attention_states
         #return : output, state
         
         #get input
-        if self.semantic:
-            last_inputs = decoder_inputs[0]
-            semantic_inputs = decoder_inputs[1]
-        else:
-            last_inputs = decoder_inputs
+        last_inputs = decoder_inputs
         
         
         AddLayer = Add(name = 'add_tem')
@@ -248,8 +240,7 @@ class MASTNN(object):
             u = self.Vd(ActTanh(y))#[none, T, 1]
             a = Softmax(axis = 1)(u)
             c = Dot(axes = (1))([a,attention_states]) #[none, 1, latent_dim], the summed context over encoder outputs at certain pred time step 
-            return c
-        
+            return c      
         
         [h,s] = initial_state
         context = attention([h,s],0) 
@@ -258,22 +249,15 @@ class MASTNN(object):
         for t in range(self.predT):
             if not self.trainmode and t > 0 and prev is not None:
             #if decoder length is larger than 1, we calculate the prediction output for current step
-                last_pred = self.Wo2(prev)
+                last_pred = self.Wo(prev)
             else:
                 last_pred = Lambda(lambda x: x[:,t ,:], name = 'X_tem{}'.format(t))(last_inputs) #[none,decoder_input_dim]
                 last_pred = RepeatVector(1)(last_pred) #[none,1,decoder_input_dim] , 1 denotes one time step
             
-            #if self.semantic:
-            #    x = Concatenate(axis = -1)([context,last_pred, semantic_inputs])
-            #else:
             x = Concatenate(axis = -1)([context,last_pred])
             o, h, s = self.deLSTM(x, initial_state = [h, s])
             context = attention([h,s],t+1)#[none, 1, latent_dim]
             o = RepeatVector(1)(o)
-            if self.semantic:
-            #    print('semantic input: ',semantic_inputs)
-            #    print('o: ',o)
-                o = Concatenate(axis = -1)([o, semantic_inputs])
             outputs.append(o)
             prev = o
             
@@ -286,7 +270,7 @@ class MASTNN(object):
         return outputs,[h,s]
         
         
-    def build_model(self, input_dim = int(5)):
+    def build_model(self, input_dim = 5):
         #encoder
         encoder_latent_dim = self.encoder_latent_dim
         neighnum = self.neigh_num
@@ -304,31 +288,19 @@ class MASTNN(object):
         else:
             encoder_inputs = encoder_inputs_local
             enc_att = enc_att_local
-        encoder_output, encoder_state, encoder_att = self.spatial_attention(encoder_inputs,enc_att,[h0, s0])
+        encoder_output, encoder_state, encoder_att = self.encoder_attention(encoder_inputs,enc_att,[h0, s0])
                
         #decoder
         dim = 1
         last_inputs = Input(shape = (None, dim))
-        semantic_inputs = Input(shape = (1, 10))
-        if self.semantic:
-            decoder_inputs = [last_inputs,semantic_inputs]
-        else:
-            decoder_inputs = last_inputs
-        decoder_outputs, states = self.temporal_attention(decoder_inputs, encoder_state, encoder_output)
+        decoder_inputs = last_inputs
+        decoder_outputs, states = self.decoder_attention(decoder_inputs, encoder_state, encoder_output)
         
         #linear transform
-        #output = Dense(1, activation = 'linear', name = 'output_dense')(decoder_att)
-        #output = self.Wo1(decoder_outputs)
-        output = self.Wo2(decoder_outputs)
+        output = self.Wo(decoder_outputs)
         if not self.global_att:
-            if not self.semantic:
-                model = Model([encoder_inputs, h0, s0, enc_att, last_inputs], output)
-            else:
-                model = Model([encoder_inputs, h0, s0, enc_att, last_inputs, semantic_inputs], output)
+            model = Model([encoder_inputs, h0, s0, enc_att, last_inputs], output)
         else:
-            if not self.semantic:
-                model = Model([encoder_inputs_local, encoder_inputs_global_value,encoder_inputs_global_weight, h0, s0, enc_att_local, enc_att_global, last_inputs], output)
-            else:
-                model = Model([encoder_inputs_local, encoder_inputs_global_value,encoder_inputs_global_weight, h0, s0, enc_att_local, enc_att_global, last_inputs, semantic_inputs], output)
-            
+            model = Model([encoder_inputs_local, encoder_inputs_global_value,encoder_inputs_global_weight, h0, s0, enc_att_local, enc_att_global, last_inputs], output)
+             
         return model
