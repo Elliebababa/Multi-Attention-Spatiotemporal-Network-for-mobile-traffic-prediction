@@ -1,5 +1,5 @@
 # Multi-Attention-Spatiotemporal-Network-for-mobile-traffic-prediction
-Implementing Multi-level attention for spatio-temporal prediction
+Implementing Multi-level attention network for spatio-temporal prediction
 
 ## Framework
 
