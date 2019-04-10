@@ -92,6 +92,7 @@ class MASTNN(object):
         self.enLSTM = LSTM(encoder_latent_dim, return_state = True, name = 'encoder_lstm')
         self.deLSTM = LSTM(decoder_latent_dim, return_state = True, name = 'decoder_lstm')
         #encoder auxiliary attention parameter weight matrix
+        self.aux_att = aux_att
         self.We = Dense(units = T, input_dim = 2 * encoder_latent_dim, activation = 'linear', use_bias = False, name = 'We')
         self.Ue = Dense(units = T, input_dim = T, activation = 'linear', use_bias = False, name = 'Ue')
         self.Ve = Dense(units = 1, input_dim = T, activation = 'linear', use_bias = False, name = 'Ve')
@@ -119,6 +120,7 @@ class MASTNN(object):
         encoder_att = []
         encoder_output = []
         global_att = self.global_att
+        aux_att = self.aux_att
         #get input
         if global_att:
             local_inputs = encoder_inputs[0]
@@ -173,39 +175,60 @@ class MASTNN(object):
             return beta
         
         for t in range(self.T):
-            if not global_att:
-                x = Lambda(lambda x: x[:,t ,:], name = 'X_{}'.format(t))(local_inputs) #[none,input_dim]
-                x = RepeatVector(1)(x) #[none,1,input_dim] , 1 denotes one time step
-                local_x = Multiply(name = 'Xatt_{}'.format(t))([local_attn, x]) #[none,1,input_dim]
-                o, h, s = self.enLSTM(local_x, initial_state = [h, s]) #o, h, s [none, hidden_dim]
-                o = RepeatVector(1)(o)
-                encoder_output.append(o)
-                local_attn = local_attention([h,s], t+1)
-                encoder_att.append(local_attn)
-            elif global_att:
-                x = Lambda(lambda x: x[:,t ,:], name = 'X_local_{}'.format(t))(local_inputs) #[none,input_dim]
-                x = RepeatVector(1)(x) #[none,1,input_dim] , 1 denotes one time step
-                [global_input_value,global_input_weight] = global_inputs
-                x2 = Lambda(lambda x2: x2[:,t ,:], name = 'X_global_{}'.format(t))(global_input_value) #[none,neighbornum]
-                x2 = RepeatVector(1)(x2) #[none,1,neighbornum] , 1 denotes one time step
-                prior = Lambda(lambda p: p[:,t ,:], name = 'global_prior_{}'.format(t))(global_input_weight) #[none,neighbornum]
-                prior = RepeatVector(1)(prior)
-                local_x = Multiply(name = 'Xatt_local_{}'.format(t))([local_attn, x]) #[none,1,input_dim]
-                print('global_attn:',global_attn, 'x2:',x2)
-                global_x = Dot(axes = (2),name = 'Xatt_global_{}'.format(t))([global_attn, x2])
-                #global_x = Multiply(name = 'Xatt_global_{}'.format(t))([global_attn, x2])
-                att_x = Concatenate(axis = -1)([local_x, global_x])
-                o, h, s = self.enLSTM(att_x, initial_state = [h, s]) #o, h, s [none, hidden_dim]
-                o = RepeatVector(1)(o)
-                encoder_output.append(o)
-                local_attn = local_attention([h,s], t+1)
-                global_attn = global_attention([h,s],t+1, prior)
-                encoder_att.append([local_attn, global_attn])
-        
-        if not global_att: 
-            encoder_att = Concatenate(axis = 1,name = 'encoder_att')(encoder_att) #[none, T, input_dim]
-        
-        else:
+            if global_att:
+                if aux_att:
+                    x = Lambda(lambda x: x[:,t ,:], name = 'X_local_{}'.format(t))(local_inputs) #[none,input_dim]
+                    x = RepeatVector(1)(x) #[none,1,input_dim] , 1 denotes one time step
+                    [global_input_value,global_input_weight] = global_inputs
+                    x2 = Lambda(lambda x2: x2[:,t ,:], name = 'X_global_{}'.format(t))(global_input_value) #[none,neighbornum]
+                    x2 = RepeatVector(1)(x2) #[none,1,neighbornum] , 1 denotes one time step
+                    prior = Lambda(lambda p: p[:,t ,:], name = 'global_prior_{}'.format(t))(global_input_weight) #[none,neighbornum]
+                    prior = RepeatVector(1)(prior)
+                    local_x = Multiply(name = 'Xatt_local_{}'.format(t))([local_attn, x]) #[none,1,input_dim]
+                    print('global_attn:',global_attn, 'x2:',x2)
+                    global_x = Dot(axes = (2),name = 'Xatt_global_{}'.format(t))([global_attn, x2])
+                    #global_x = Multiply(name = 'Xatt_global_{}'.format(t))([global_attn, x2])
+                    att_x = Concatenate(axis = -1)([local_x, global_x])
+                    o, h, s = self.enLSTM(att_x, initial_state = [h, s]) #o, h, s [none, hidden_dim]
+                    o = RepeatVector(1)(o)
+                    encoder_output.append(o)
+                    local_attn = local_attention([h,s], t+1)
+                    global_attn = global_attention([h,s],t+1, prior)
+                    encoder_att.append([local_attn, global_attn])
+                elif not aux_att:
+                    x = Lambda(lambda x: x[:,t ,:], name = 'X_local_{}'.format(t))(local_inputs) #[none,input_dim]
+                    x = RepeatVector(1)(x) #[none,1,input_dim] , 1 denotes one time step
+                    [global_input_value,global_input_weight] = global_inputs
+                    x2 = Lambda(lambda x2: x2[:,t ,:], name = 'X_global_{}'.format(t))(global_input_value) #[none,neighbornum]
+                    x2 = RepeatVector(1)(x2) #[none,1,neighbornum] , 1 denotes one time step
+                    prior = Lambda(lambda p: p[:,t ,:], name = 'global_prior_{}'.format(t))(global_input_weight) #[none,neighbornum]
+                    prior = RepeatVector(1)(prior)
+                    global_x = Dot(axes = (2),name = 'Xatt_global_{}'.format(t))([global_attn, x2])
+                    att_x = Concatenate(axis = -1)([x, global_x])
+                    o, h, s = self.enLSTM(att_x, initial_state = [h, s]) #o, h, s [none, hidden_dim]
+                    o = RepeatVector(1)(o)
+                    encoder_output.append(o)
+                    global_attn = global_attention([h,s],t+1, prior)
+                    encoder_att.append(global_attn)
+            
+            elif not global_att:
+                if aux_att:
+                    x = Lambda(lambda x: x[:,t ,:], name = 'X_{}'.format(t))(local_inputs) #[none,input_dim]
+                    x = RepeatVector(1)(x) #[none,1,input_dim] , 1 denotes one time step
+                    local_x = Multiply(name = 'Xatt_{}'.format(t))([local_attn, x]) #[none,1,input_dim]
+                    o, h, s = self.enLSTM(local_x, initial_state = [h, s]) #o, h, s [none, hidden_dim]
+                    o = RepeatVector(1)(o)
+                    encoder_output.append(o)
+                    local_attn = local_attention([h,s], t+1)
+                    encoder_att.append(local_attn)
+                elif not aux_att:
+                    x = Lambda(lambda x: x[:,t ,:], name = 'X_{}'.format(t))(local_inputs) #[none,input_dim]
+                    x = RepeatVector(1)(x) #[none,1,input_dim] , 1 denotes one time step
+                    o, h, s = self.enLSTM(x, initial_state = [h, s]) #o, h, s [none, hidden_dim]
+                    o = RepeatVector(1)(o)
+                    encoder_output.append(o)
+
+        if global_att and aux_att:
             local_att = [i[0] for i in encoder_att]
             print('local_att', local_att)
             local_att = Concatenate(axis = 1)(local_att)
@@ -214,6 +237,8 @@ class MASTNN(object):
             #global_att = Concatenate(axis = 1)(global_att)
             global_att = Lambda(lambda x: K.concatenate(x, axis = 1))(global_att)
             encoder_att = [local_att, global_att]
+        #elif global_att:
+        #    encoder_att = Concatenate(axis = 1,name = 'encoder_att')(encoder_att) #[none, T, input_dim]
         
         encoder_output = Concatenate(axis = 1, name = 'encoder_output')(encoder_output)
         
@@ -225,7 +250,6 @@ class MASTNN(object):
         
         #get input
         last_inputs = decoder_inputs
-        
         
         AddLayer = Add(name = 'add_tem')
         PermuteLayer = Permute(dims = (2,1))
@@ -298,9 +322,6 @@ class MASTNN(object):
         
         #linear transform
         output = self.Wo(decoder_outputs)
-        if not self.global_att:
-            model = Model([encoder_inputs, h0, s0, enc_att, last_inputs], output)
-        else:
-            model = Model([encoder_inputs_local, encoder_inputs_global_value,encoder_inputs_global_weight, h0, s0, enc_att_local, enc_att_global, last_inputs], output)
+        model = Model([encoder_inputs_local, encoder_inputs_global_value,encoder_inputs_global_weight, h0, s0, enc_att_local, enc_att_global, last_inputs], output)
              
         return model
