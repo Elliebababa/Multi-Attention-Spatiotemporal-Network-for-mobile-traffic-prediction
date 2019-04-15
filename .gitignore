@@ -1,3 +1,4 @@
 *.h5
 *.npy
 *.log
+data/
