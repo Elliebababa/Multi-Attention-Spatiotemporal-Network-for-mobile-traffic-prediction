@@ -2,7 +2,7 @@ import numpy as np
 import tensorflow as tf
 from keras.models import Model
 from keras.optimizers import Adam
-from keras.layers import LSTM,RepeatVector,Dense,Activation,Add,Reshape,Input,Lambda,Multiply,Concatenate,Dot,Permute, Softmax,SimpleRNN
+from keras.layers import LSTM,RepeatVector,Dense,Activation,Add,Reshape,Input,Lambda,Multiply,Concatenate,Dot,Permute, Softmax,SimpleRNN,AveragePooling1D
 import keras.backend as K
 latent_dim = 64
 
@@ -81,7 +81,7 @@ def lstm_prediction(test_input, model, pre_step = 1):
     return lstm_o_seq
     
 class MASTNN(object):
-    def __init__(self, T = 6, predT = 1, encoder_latent_dim = 64, decoder_latent_dim = 64, aux_att = True, global_att = True, context = 'att' , neigh_num = 15 , trainmode = False):
+    def __init__(self, T = 6, predT = 1, encoder_latent_dim = 64, decoder_latent_dim = 64, aux_att = True, global_att = True, context_mode = 'att' , neigh_num = 15 , trainmode = False):
         super(MASTNN, self).__init__()
         self.trainmode = trainmode # when trainmode is no, the decoder will use the truth value of prev time step to decode
         self.T = T
@@ -99,12 +99,13 @@ class MASTNN(object):
         #encooder global attention parameter weight matrix
         self.global_att = global_att
         self.neigh_num = neigh_num
-        self.lamb = 0.4
+        self.lamb = 1
         print('lambda:',self.lamb)
         self.Wg = Dense(units = T, input_dim = 2 * encoder_latent_dim, activation = 'linear', use_bias = False, name = 'Wg')
         self.Ug = Dense(units = T, input_dim = T, activation = 'linear', use_bias = False, name = 'Ug')
         self.Vg = Dense(units = 1, input_dim = T, activation = 'linear', use_bias = False, name = 'Vg')
         #decoder attention parameter weight matrix
+        self.context_mode = context_mode
         self.Wd = Dense(units = decoder_latent_dim, input_dim = decoder_latent_dim, activation = 'linear', use_bias = False, name = 'Wd')
         self.Wd_ = Dense(units = decoder_latent_dim, input_dim = 2*encoder_latent_dim, activation = 'linear', use_bias = False, name = 'Wd_')
         self.Vd = Dense(units = 1, input_dim = decoder_latent_dim, activation = 'linear', use_bias = False, name = 'Vd')
@@ -203,6 +204,7 @@ class MASTNN(object):
                     x2 = RepeatVector(1)(x2) #[none,1,neighbornum] , 1 denotes one time step
                     prior = Lambda(lambda p: p[:,t ,:], name = 'global_prior_{}'.format(t))(global_input_weight) #[none,neighbornum]
                     prior = RepeatVector(1)(prior)
+                    #global_x = Multiply(name = 'Xatt_global_{}'.format(t))([global_attn, x2])
                     global_x = Dot(axes = (2),name = 'Xatt_global_{}'.format(t))([global_attn, x2])
                     att_x = Concatenate(axis = -1)([x, global_x])
                     o, h, s = self.enLSTM(att_x, initial_state = [h, s]) #o, h, s [none, hidden_dim]
@@ -266,8 +268,24 @@ class MASTNN(object):
             c = Dot(axes = (1))([a,attention_states]) #[none, 1, latent_dim], the summed context over encoder outputs at certain pred time step 
             return c      
         
+        def meancontext():
+            c = AveragePooling1D(pool_size = (attention_states.shape[1],))(attention_states)
+            return c
+            
+        def lastcontext():
+            c = Lambda(lambda x: x[:,-1,:], name = 'lastouput')(attention_states)
+            c = RepeatVector(1)(c)
+            return c
+        
+        
         [h,s] = initial_state
-        context = attention([h,s],0) 
+        if self.context_mode == 'att':
+            context = attention([h,s],0)
+        elif self.context_mode == 'mean':
+            context = meancontext()
+        elif self.context_mode == 'last':
+            context = lastcontext()
+            
         outputs =[]
         prev = None
         for t in range(self.predT):
@@ -280,7 +298,8 @@ class MASTNN(object):
             
             x = Concatenate(axis = -1)([context,last_pred])
             o, h, s = self.deLSTM(x, initial_state = [h, s])
-            context = attention([h,s],t+1)#[none, 1, latent_dim]
+            if self.context_mode == 'att':
+                context = attention([h,s],t+1)#[none, 1, latent_dim]
             o = RepeatVector(1)(o)
             outputs.append(o)
             prev = o

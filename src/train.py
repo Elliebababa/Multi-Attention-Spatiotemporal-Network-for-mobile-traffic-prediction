@@ -35,7 +35,7 @@ patience = 100  # early stopping patience, for I find early stopping did not con
 batch_size = 2**10
 verbose = 2
 #model for training
-modelbase = 'MASTNN-spatioatt-auxatt' #RNN , lstm, lstm_aux, seq2seq, seq2seq_aux , MASTNN, MASTNN-spatioatt, MASTNN-auxatt, MASTNN-spatioatt-auxatt, MASTNN-decodelast, MASTNN-decodemean
+modelbase = 'MASTNN' #RNN , lstm, lstm_aux, seq2seq, seq2seq_aux , MASTNN, MASTNN-spatioatt, MASTNN-auxatt, MASTNN-spatioatt-auxatt, MASTNN-decodelast, MASTNN-decodemean
 m = 64 #hidden layer of MAModel
 predstep = 1
 # for testing the model training performance
@@ -88,10 +88,10 @@ def build_model(modelbase = modelbase):
             a = MASTNN(predT = predstep,T = look_back,global_att = False,aux_att = False)
             model = a.build_model(input_dim = 5)
         elif modelbase == 'MASTNN-decodelast':
-            a = MASTNN(predT = predstep,T = look_back)
+            a = MASTNN(predT = predstep,T = look_back,context_mode = 'last')
             model = a.build_model(input_dim = 5)
         elif modelbase == 'MASTNN-decodemean':
-            a = MASTNN(predT = predstep, T = look_back)
+            a = MASTNN(predT = predstep, T = look_back,context_mode = 'mean')
             model = a.build_model(input_dim = 5)
     adam = Adam(lr = lr)
     model.compile(loss = 'mse', optimizer = adam, metrics = [metrics.rmse, metrics.mape, metrics.ma])
@@ -220,11 +220,7 @@ def main(modelbase):
             history = model.fit([train_encoder_input, train_decoder_input], train_decoder_target, verbose = verbose, batch_size = batch_size, epochs = nb_epoch, validation_split = 0.2, callbacks = callbacks)
         elif modelbase in ['lstm', 'lstm_aux']:
             history = model.fit([train_encoder_input], train_decoder_target, verbose = verbose, batch_size = batch_size, epochs = nb_epoch, validation_split = 0.2, callbacks = callbacks)
-        elif modelbase =='MASTNN-spatioatt':
-            s0_train = h0_train = np.zeros((train_encoder_input.shape[0],m))
-            enc_att = np.ones((train_encoder_input.shape[0],1,train_encoder_input.shape[2]))
-            history = model.fit([train_encoder_input,h0_train,s0_train,enc_att,train_decoder_input], train_decoder_target, verbose = verbose, batch_size = batch_size, epochs = nb_epoch, validation_split = 0.2, callbacks = callbacks)
-        else:
+        else:# Model == mastnn
             #model = Model([encoder_inputs_local, encoder_inputs_global_value,encoder_inputs_global_weight, h0, s0, enc_att_local, enc_att_global, decoder_inputs], output)
             s0_train = h0_train = np.zeros((train_encoder_input.shape[0],m))
             enc_att = np.ones((train_encoder_input.shape[0],1,train_encoder_input.shape[2]))
@@ -247,10 +243,6 @@ def main(modelbase):
         train_pred =  model.predict([train_encoder_input, train_decoder_input], verbose = verbose, batch_size = batch_size)
     elif modelbase in ['lstm', 'lstm_aux']:
         train_pred =  lstm_prediction([train_encoder_input], model, pre_step = predstep)
-    elif modelbase =='MASTNN-spatioatt':
-        s0_train = h0_train = np.zeros((train_encoder_input.shape[0],m))
-        enc_att = np.ones((train_encoder_input.shape[0],1,train_encoder_input.shape[2]))
-        train_pred =  model.predict([train_encoder_input,h0_train,s0_train,enc_att, train_decoder_input], verbose = verbose, batch_size = batch_size)
     else:
     #model = Model([encoder_inputs_local, encoder_inputs_global_value,encoder_inputs_global_weight, h0, s0, enc_att_local, enc_att_global, decoder_inputs], output)
         s0_train = h0_train = np.zeros((train_encoder_input.shape[0],m))
@@ -269,11 +261,7 @@ def main(modelbase):
         #test_pred = model.predict([test_encoder_input, test_decoder_input], encoder_model, decoder_model)
     elif modelbase in ['lstm', 'lstm_aux']:
         test_pred = lstm_prediction([test_encoder_input], model, pre_step = predstep)
-    elif modelbase =='MASTNN-spatioatt':
-        s0_test = h0_test = np.zeros((test_encoder_input.shape[0],m))
-        enc_att = np.ones((test_encoder_input.shape[0],1,test_encoder_input.shape[2]))
-        test_pred = model.predict([test_encoder_input,h0_train,s0_train,enc_att, test_decoder_input], verbose = verbose, batch_size = batch_size)
-    elif modelbase =='MASTNN':
+    else:# modelbase =='MASTNN':
         s0_test = h0_test = np.zeros((test_encoder_input.shape[0],m))
         enc_att = np.ones((test_encoder_input.shape[0],1,test_encoder_input.shape[2]))
         enc_att_glo = np.ones((test_neighbor_values.shape[0],1,test_neighbor_values.shape[2]))
