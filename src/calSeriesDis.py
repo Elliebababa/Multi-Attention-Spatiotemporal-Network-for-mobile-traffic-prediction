@@ -2,7 +2,7 @@ import h5py as h5
 import time
 import math
 import numpy as np
-file_ = '../../data/processed/Nov_internet_data_t10_s3030_4070.h5'
+file_ = '../data/processed/demo_internet_data.h5'#'../../data/processed/Nov_internet_data_t10_s3030_4070.h5'
 f = h5.File(file_,'r')
 data = f['data'].value
 data = np.vstack(data)

@@ -5,7 +5,9 @@ from pathlib import Path
 import pandas as pd
 from os import walk
 import numpy as np
-
+import h5py
+import time
+import math
 
 @click.command()
 @click.argument('input_filepath', type=click.Path(exists=True))
@@ -20,7 +22,7 @@ def main(input_filepath = None, output_filepath = None):
     sheetList, days = loadRaw(input_filepath)
     selectedareas = generate_forecast_areas()
     aggregateGridData(sheetList, days, selectedareas, '../data/interim')
-    
+    make_h5(outdir_ = output_filepath, sa = selectedareas)
 
 
 def loadRaw(filepath = None):
@@ -72,38 +74,54 @@ def aggregateGridData(sheetList, days, selectedareas, output_filepath , header =
         gd.to_csv(output_filepath +'/grid'+str(i)+'.csv',header = header)
         logging.info('grid'+str(i)+' aggregated\n')
 
-def make_h5(indir_='../data/interim', outdir_='../data/processed',fname = 'demo_internet_data.h5'):
+def make_h5(indir_='../data/interim', outdir_='../data/processed',  sa = list(range(1,10001)),fname = 'demo_internet_data.h5'):
     #convert list of grid csv data into h5 format
     #indir_ refers to path to the csv files
     #fname is the name of file generated
     #temporal_gran is the temporal aggregating granduality
     #spatial_gran is the spatial aggregatin granduality
-    slots = 4320
-    rows  = 100
-    cols = 100
-    f = h5py.File(fname,'w')
+    #slots = 4320
+    slots = len(pd.read_csv('{}/grid{}.csv'.format(indir_,sa[0]),header = None))
+    rows  = 30#100
+    cols = 30#100
+    f = h5py.File(outdir_+'/demo_internet_data.h5','w')
+    f2 = h5py.File(outdir_+'/demo_sms_data.h5'+fname,'w')
+    f3 = h5py.File(outdir_+'/demo_call_data.h5'+fname,'w')
+
     f_time = f.create_dataset('date',(slots,),dtype = 'S13')
     f_data = f.create_dataset('data',(slots,1,rows,cols),dtype='float64')
-    start_file = 1
+    f2_time = f.create_dataset('date',(slots,),dtype = 'S13')
+    f2_data = f.create_dataset('data',(slots,2,rows,cols),dtype='float64')
+    f3_time = f.create_dataset('date',(slots,),dtype = 'S13')
+    f3_data = f.create_dataset('data',(slots,2,rows,cols),dtype='float64')
+
     #generate time interval
-    timeInter = [1383260400000+i*600000*temporal_gran for i in range(slots)]
+    timeInter = [1383260400000+i*600000 for i in range(slots)]
     for i,t in enumerate(timeInter):
         f_time[i] = bytes(str(t).encode(encoding='utf-8'))
+        f2_time[i] = bytes(str(t).encode(encoding='utf-8'))
+        f3_time[i] = bytes(str(t).encode(encoding='utf-8'))
         
-    for grid in range(1,rows*cols+1):
-        data = pd.read_csv('{}/grid{}.csv'.format(indir_,grid))
-        data['time'] = data['time'].apply(lambda x:int(time.mktime(time.strptime(x, "%Y-%m-%d %H:%M:%S"))*1000))
-        Row = math.ceil(grid/rows)
+    for idg,grid in enumerate(sa):
+        data = pd.read_csv('{}/grid{}.csv'.format(indir_,grid),names = ['timeInterval', 'smsIn', 'smsOut', 'callIn', 'callOut', 'Internet'])
+        Row = math.ceil((1+idg)/rows)
         Row -= 1
-        Col = cols if grid % cols == 0 else grid % cols
+        Col = cols if (1+idg) % cols == 0 else (1+idg) % cols
         Col -= 1
+        #print(Row,Col)
         for i,t in enumerate(timeInter):
-            print(data[(data['time'] == t)].traffic)
-            f_data[i,0,Row,Col] = float(data[(data['time'] == t)].traffic)
-            if i % slots == 100:
-                print(grid,i,0,Row,Col,f_data[i,0,Row,Col])
+            #print(data[(data['timeInterval'] == t)].Internet)
+            f_data[i,0,Row,Col] = float(data[(data['timeInterval'] == t)].Internet)
+            f2_data[i,0,Row,Col] = float(data[(data['timeInterval'] == t)].smsIn)
+            f2_data[i,1,Row,Col] = float(data[(data['timeInterval'] == t)].smsOut)
+            f3_data[i,0,Row,Col] = float(data[(data['timeInterval'] == t)].callIn)
+            f3_data[i,1,Row,Col] = float(data[(data['timeInterval'] == t)].callOut)
+            #if i % slots == 100:
+                #print(grid,i,0,Row,Col,f_data[i,0,Row,Col])
     f.close()
-
+    f2.close()
+    f3.close()
+    
 def generate_forecast_areas(sr = (40,70)):
     # by default the areas for prediction is [41:70,41:70]
     a = np.arange(1,10001).reshape(100,100)
